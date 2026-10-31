@@ -105,8 +105,6 @@ Ported and passing (`ctest`, 35 tests):
 Next (milestone 2): the arm64 EE library from the owner's disc (`tools/ee_producer`), the game executable
 (`gt4vulkan`: the derived `main.cpp`, `window_sdl.cpp`, the runtime and the library), and an end-to-end boot.
 
-- `window.cpp`: Win32 window, VBlank hook and F-keys to SDL3.
-
 Open design points:
 
 - **GS process presentation (milestone 3).** On Windows the GS process draws into a child of the game window
