@@ -9,7 +9,11 @@
 #include "rc_error.h"
 #include "rc_hash.h"
 
+#ifdef _WIN32
 #include <winhttp.h>
+#else
+#include "posix_compat.hpp"
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -45,6 +49,22 @@ bool parse_bool_str(const std::string& raw, bool default_val) {
     return default_val;
 }
 
+#ifndef _WIN32
+// UTF-8 to UTF-32 (wchar_t on macOS).
+std::wstring utf8_to_wide(const std::string& str) {
+    std::wstring out;
+    for (size_t i = 0; i < str.size();) {
+        const auto lead = static_cast<unsigned char>(str[i]);
+        const int extra = lead < 0x80 ? 0 : lead < 0xE0 ? 1 : lead < 0xF0 ? 2 : 3;
+        uint32_t code = extra == 0 ? lead : extra == 1 ? (lead & 0x1Fu) : extra == 2 ? (lead & 0x0Fu) : (lead & 0x07u);
+        for (int k = 1; k <= extra && i + k < str.size(); ++k)
+            code = (code << 6) | (static_cast<unsigned char>(str[i + k]) & 0x3Fu);
+        out.push_back(static_cast<wchar_t>(code));
+        i += static_cast<size_t>(extra) + 1;
+    }
+    return out;
+}
+#else
 std::wstring utf8_to_wide(const std::string& str) {
     if (str.empty()) return {};
     const int needed = MultiByteToWideChar(CP_UTF8, 0, str.data(), static_cast<int>(str.size()), nullptr, 0);
@@ -53,6 +73,7 @@ std::wstring utf8_to_wide(const std::string& str) {
     MultiByteToWideChar(CP_UTF8, 0, str.data(), static_cast<int>(str.size()), out.data(), needed);
     return out;
 }
+#endif
 
 std::string sanitize_badge_filename(const char* name) {
     if (!name || !*name) return "default";
@@ -93,7 +114,7 @@ public:
         return mgr;
     }
 
-    void init(HWND game_window, const uint8_t* ram, size_t ram_size, const uint8_t* spr, size_t spr_size) {
+    void init(HostWindow game_window, const uint8_t* ram, size_t ram_size, const uint8_t* spr, size_t spr_size) {
         shutdown();
 
         cfg_ = config_from_environment();
@@ -111,10 +132,16 @@ public:
         spr_size_ = spr_size;
 
         if (cfg_.cache_dir.empty()) {
+#ifdef _WIN32
             wchar_t temp_buf[MAX_PATH]{};
             if (GetTempPathW(MAX_PATH, temp_buf) > 0) {
                 cfg_.cache_dir = std::wstring(temp_buf) + L"GT4Recomp\\ra_cache";
             }
+#else
+            std::error_code temp_error;
+            const std::filesystem::path temp = std::filesystem::temp_directory_path(temp_error);
+            if (!temp_error) cfg_.cache_dir = (temp / "GT4Recomp" / "ra_cache").wstring();
+#endif
         }
         if (!cfg_.cache_dir.empty()) {
             std::error_code ec;
@@ -173,7 +200,7 @@ public:
         }
     }
 
-    void tick(HWND game_window, const uint8_t* ram, size_t ram_size, const uint8_t* spr, size_t spr_size) {
+    void tick(HostWindow game_window, const uint8_t* ram, size_t ram_size, const uint8_t* spr, size_t spr_size) {
         if (!active_.load(std::memory_order_relaxed) || !client_) return;
         ram_ = ram;
         ram_size_ = ram_size;
@@ -191,7 +218,7 @@ public:
         overlay_.tick(game_window);
     }
 
-    void on_pos_changed(HWND game_window) {
+    void on_pos_changed(HostWindow game_window) {
         if (!active_.load(std::memory_order_relaxed)) return;
         overlay_.on_owner_pos_changed(game_window);
     }
@@ -422,10 +449,17 @@ private:
         std::filesystem::path dest = std::filesystem::path(cfg_.cache_dir) / L"badges" / (utf8_to_wide(cache_key) + L".png");
         std::wstring dest_w = dest.wstring();
 
+#ifdef _WIN32
         const DWORD attrs = GetFileAttributesW(dest_w.c_str());
         if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY) == 0) {
             return dest_w;
         }
+#else
+        std::error_code exists_error;
+        if (std::filesystem::is_regular_file(dest, exists_error)) {
+            return dest_w;
+        }
+#endif
 
         if (requested_badges_.insert(cache_key).second) {
             HttpJob job;
@@ -646,11 +680,22 @@ private:
                     if (out) {
                         out.write(http.body.data(), static_cast<std::streamsize>(http.body.size()));
                         out.close();
+#ifdef _WIN32
                         if (MoveFileExW(tmp_path.c_str(), job.badge_dest_path.c_str(), MOVEFILE_REPLACE_EXISTING)) {
                             saved = true;
                         } else {
                             DeleteFileW(tmp_path.c_str());
                         }
+#else
+                        std::error_code move_error;
+                        std::filesystem::rename(std::filesystem::path(tmp_path),
+                                                std::filesystem::path(job.badge_dest_path), move_error);
+                        if (!move_error) {
+                            saved = true;
+                        } else {
+                            std::filesystem::remove(std::filesystem::path(tmp_path), move_error);
+                        }
+#endif
                     }
                 }
                 CompletedHttpJob done;
@@ -808,15 +853,15 @@ uint32_t read_ps2_memory(
     return 0;
 }
 
-void initialize(HWND game_window, const uint8_t* ram, size_t ram_size, const uint8_t* spr, size_t spr_size) {
+void initialize(HostWindow game_window, const uint8_t* ram, size_t ram_size, const uint8_t* spr, size_t spr_size) {
     RuntimeManager::instance().init(game_window, ram, ram_size, spr, spr_size);
 }
 
-void on_vblank(HWND game_window, const uint8_t* ram, size_t ram_size, const uint8_t* spr, size_t spr_size) {
+void on_vblank(HostWindow game_window, const uint8_t* ram, size_t ram_size, const uint8_t* spr, size_t spr_size) {
     RuntimeManager::instance().tick(game_window, ram, ram_size, spr, spr_size);
 }
 
-void on_window_pos_changed(HWND game_window) {
+void on_window_pos_changed(HostWindow game_window) {
     RuntimeManager::instance().on_pos_changed(game_window);
 }
 

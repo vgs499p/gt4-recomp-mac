@@ -3,10 +3,13 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#ifdef _WIN32
 #include <objidl.h>
 #include <gdiplus.h>
+#endif
 
 namespace gt4::achievements {
+#ifdef _WIN32
 namespace {
 
 constexpr wchar_t kOverlayClassName[] = L"GT4RecompAchievementsOverlayWindow";
@@ -120,6 +123,7 @@ LRESULT CALLBACK overlay_wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
 }
 
 } // namespace
+#endif
 
 AchievementsOverlay::~AchievementsOverlay() {
     shutdown();
@@ -151,7 +155,9 @@ void AchievementsOverlay::compute_toast_anim(double elapsed_sec, double total_se
     out_slide_px = 0.0f;
 }
 
-void AchievementsOverlay::initialize(HWND owner_window) {
+#ifdef _WIN32
+// macOS: initialize, shutdown, ensure_window, update_placement, tick and render are in achievements_overlay_mac.mm.
+void AchievementsOverlay::initialize(HostWindow owner_window) {
     owner_hwnd_ = owner_window;
     if (!gdiplus_initialized_) {
         Gdiplus::GdiplusStartupInput startup_input;
@@ -196,8 +202,10 @@ void AchievementsOverlay::shutdown() {
         gdiplus_initialized_ = false;
     }
 }
+#endif
 
-void AchievementsOverlay::ensure_window(HWND owner_window) {
+#ifdef _WIN32
+void AchievementsOverlay::ensure_window(HostWindow owner_window) {
     if (!owner_window || !IsWindow(owner_window)) return;
     owner_hwnd_ = owner_window;
     if (overlay_hwnd_ && IsWindow(overlay_hwnd_)) return;
@@ -231,6 +239,7 @@ void AchievementsOverlay::ensure_window(HWND owner_window) {
         hinst,
         nullptr);
 }
+#endif
 
 void AchievementsOverlay::enqueue_toast(OverlayToast toast) {
     if (toast.duration_sec <= 0.5) {
@@ -308,12 +317,13 @@ bool AchievementsOverlay::has_visible_content() const {
     return !toast_queue_.empty() || progress_.visible || !challenges_.empty() || !trackers_.empty();
 }
 
-void AchievementsOverlay::on_owner_pos_changed(HWND owner_window) {
+void AchievementsOverlay::on_owner_pos_changed(HostWindow owner_window) {
     dirty_ = true;
     update_placement(owner_window);
 }
 
-void AchievementsOverlay::update_placement(HWND owner_window) {
+#ifdef _WIN32
+void AchievementsOverlay::update_placement(HostWindow owner_window) {
     if (!overlay_hwnd_ || !IsWindow(overlay_hwnd_) || !owner_window || !IsWindow(owner_window)) return;
     if (IsIconic(owner_window) || !IsWindowVisible(owner_window) || !has_visible_content()) {
         if (IsWindowVisible(overlay_hwnd_)) {
@@ -339,7 +349,7 @@ void AchievementsOverlay::update_placement(HWND owner_window) {
         SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
 }
 
-void AchievementsOverlay::tick(HWND owner_window) {
+void AchievementsOverlay::tick(HostWindow owner_window) {
     if (!owner_window || !IsWindow(owner_window)) return;
     ensure_window(owner_window);
     if (!overlay_hwnd_ || !gdiplus_initialized_) return;
@@ -388,7 +398,7 @@ void AchievementsOverlay::tick(HWND owner_window) {
     }
 }
 
-void AchievementsOverlay::render(HWND owner_window, uint64_t now_ms) {
+void AchievementsOverlay::render(HostWindow owner_window, uint64_t now_ms) {
     RECT client_rc{};
     if (!GetClientRect(owner_window, &client_rc)) return;
     POINT screen_pt{client_rc.left, client_rc.top};
@@ -606,5 +616,7 @@ void AchievementsOverlay::render(HWND owner_window, uint64_t now_ms) {
     UpdateLayeredWindow(overlay_hwnd_, screen_dc, &screen_pt, &wnd_size, mem_dc_, &pt_src, 0, &blend, ULW_ALPHA);
     ReleaseDC(nullptr, screen_dc);
 }
+
+#endif
 
 } // namespace gt4::achievements

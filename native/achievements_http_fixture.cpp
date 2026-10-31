@@ -1,6 +1,19 @@
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#else
+// macOS port: BSD sockets under the Winsock names this fixture uses.
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/select.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <unistd.h>
+using SOCKET = int;
+constexpr SOCKET INVALID_SOCKET = -1;
+inline int closesocket(SOCKET socket) { return close(socket); }
+#endif
 
 #include "achievements_http.hpp"
 
@@ -28,7 +41,11 @@ public:
             closesocket(listener_);
             throw std::runtime_error("loopback bind/listen failed");
         }
+#ifdef _WIN32
         int length = sizeof(address);
+#else
+        socklen_t length = sizeof(address);
+#endif
         if (getsockname(listener_, reinterpret_cast<sockaddr*>(&address), &length) != 0) {
             closesocket(listener_);
             throw std::runtime_error("loopback port lookup failed");
@@ -60,10 +77,14 @@ private:
         FD_ZERO(&waiting);
         FD_SET(listener_, &waiting);
         timeval timeout{3, 0};
-        if (select(0, &waiting, nullptr, nullptr, &timeout) <= 0) return;
+        if (select(static_cast<int>(listener_) + 1, &waiting, nullptr, nullptr, &timeout) <= 0) return;
         SOCKET client = accept(listener_, nullptr, nullptr);
         if (client == INVALID_SOCKET) return;
+#ifdef _WIN32
         DWORD receive_timeout = 1000;
+#else
+        timeval receive_timeout{1, 0};
+#endif
         setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&receive_timeout), sizeof(receive_timeout));
         char request[4096]{};
         const int read = recv(client, request, sizeof(request), 0);
@@ -125,15 +146,19 @@ int test_cancellation_and_restart() {
 } // namespace
 
 int main() {
+#ifdef _WIN32
     WSADATA winsock{};
     if (WSAStartup(MAKEWORD(2, 2), &winsock) != 0) return 1;
+#endif
     int result = 1;
     try {
         result = test_cancellation_and_restart();
     } catch (const std::exception& error) {
         std::fprintf(stderr, "FAIL: %s\n", error.what());
     }
+#ifdef _WIN32
     WSACleanup();
+#endif
     if (result == 0) std::puts("achievements_http_fixture: loopback cancellation and restart passed.");
     return result;
 }

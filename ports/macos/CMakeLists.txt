@@ -123,3 +123,30 @@ target_include_directories(native_host_io PUBLIC "${GT4_NATIVE}")
 target_compile_options(native_host_io PRIVATE ${GT4_WARNINGS})
 gt4_fixture(native_audio_input host_io_fixture SOURCES "${GT4_NATIVE}/host_io_fixture.cpp" LINK native_host_io)
 set_tests_properties(native_audio_input PROPERTIES RUN_SERIAL TRUE)
+
+# RetroAchievements (achievements.cpp with the vendored rcheevos): web requests through the system libcurl
+# (achievements_http_curl.cpp) and the overlay as a child NSWindow drawn with CoreGraphics/CoreText
+# (achievements_overlay_mac.mm).
+enable_language(C)
+enable_language(OBJCXX)
+find_package(CURL REQUIRED)
+file(GLOB RCHEEVOS_SOURCES CONFIGURE_DEPENDS
+    "${GT4_NATIVE}/third_party/rcheevos/src/*.c"
+    "${GT4_NATIVE}/third_party/rcheevos/src/api/*.c"
+    "${GT4_NATIVE}/third_party/rcheevos/src/client/*.c"
+    "${GT4_NATIVE}/third_party/rcheevos/src/hash/*.c"
+    "${GT4_NATIVE}/third_party/rcheevos/src/runtime/*.c"
+    "${GT4_NATIVE}/third_party/rcheevos/src/util/*.c")
+add_library(gt4_rcheevos STATIC ${RCHEEVOS_SOURCES})
+target_include_directories(gt4_rcheevos PUBLIC "${GT4_NATIVE}/third_party/rcheevos/include")
+target_compile_definitions(gt4_rcheevos PUBLIC RC_CLIENT_SUPPORTS_HASH)
+add_library(gt4_achievements STATIC "${GT4_NATIVE}/achievements.cpp" "${GT4_NATIVE}/achievements_overlay.cpp"
+    "${GT4_NATIVE}/achievements_overlay_mac.mm" "${GT4_NATIVE}/achievements_http_curl.cpp")
+target_include_directories(gt4_achievements PUBLIC "${GT4_NATIVE}")
+target_link_libraries(gt4_achievements PUBLIC gt4_rcheevos SDL3::SDL3 CURL::libcurl
+    "-framework AppKit" "-framework CoreText" "-framework ImageIO" "-framework QuartzCore")
+target_compile_options(gt4_achievements PRIVATE ${GT4_WARNINGS} $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+gt4_fixture(native_achievements achievements_fixture SOURCES "${GT4_NATIVE}/achievements_fixture.cpp"
+    LINK gt4_achievements)
+gt4_fixture(native_achievements_http achievements_http_fixture SOURCES "${GT4_NATIVE}/achievements_http_fixture.cpp"
+    LINK gt4_achievements)

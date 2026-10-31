@@ -4,13 +4,7 @@
 #include <string>
 #include <vector>
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
+#include "achievements.hpp"
 
 namespace gt4::achievements {
 
@@ -62,7 +56,7 @@ public:
     AchievementsOverlay(const AchievementsOverlay&) = delete;
     AchievementsOverlay& operator=(const AchievementsOverlay&) = delete;
 
-    void initialize(HWND owner_window);
+    void initialize(HostWindow owner_window);
     void shutdown();
 
     void enqueue_toast(OverlayToast toast);
@@ -74,8 +68,8 @@ public:
     void notify_badge_ready(const std::wstring& badge_path);
     void clear_session_indicators();
 
-    void tick(HWND owner_window);
-    void on_owner_pos_changed(HWND owner_window);
+    void tick(HostWindow owner_window);
+    void on_owner_pos_changed(HostWindow owner_window);
 
     // Pure helper exposed for unit tests: computes toast opacity/slide from elapsed time.
     static void compute_toast_anim(double elapsed_sec, double total_sec, float& out_alpha, float& out_slide_px);
@@ -86,16 +80,17 @@ private:
         uint64_t start_tick_ms = 0;
     };
 
-    void ensure_window(HWND owner_window);
-    void update_placement(HWND owner_window);
-    void render(HWND owner_window, uint64_t now_ms);
+    void ensure_window(HostWindow owner_window);
+    void update_placement(HostWindow owner_window);
+    void render(HostWindow owner_window, uint64_t now_ms);
     bool has_visible_content() const;
 
-    HWND owner_hwnd_ = nullptr;
+    HostWindow owner_hwnd_ = nullptr;
+    bool dirty_ = false;
+#ifdef _WIN32
     HWND overlay_hwnd_ = nullptr;
     ULONG_PTR gdiplus_token_ = 0;
     bool gdiplus_initialized_ = false;
-    bool dirty_ = false;
 
     HDC mem_dc_ = nullptr;
     HBITMAP dib_bitmap_ = nullptr;
@@ -103,6 +98,12 @@ private:
     void* dib_bits_ = nullptr;
     int dib_width_ = 0;
     int dib_height_ = 0;
+#else
+    // macOS (achievements_overlay_mac.mm): a borderless, click-through child window of the game's NSWindow whose layer
+    // shows a CoreGraphics bitmap drawn like the Windows layered window. Retained Objective-C objects.
+    void* overlay_window_ = nullptr;  // NSWindow
+    void* overlay_view_ = nullptr;    // NSView (layer-backed)
+#endif
 
     std::vector<ActiveToast> toast_queue_;
     ProgressIndicatorState progress_;

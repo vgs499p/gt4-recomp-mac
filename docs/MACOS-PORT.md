@@ -29,7 +29,7 @@ On Apple platforms the root `CMakeLists.txt` hands off to `ports/macos/CMakeList
 
 ### Milestone 1 detail
 
-Ported and passing (`ctest`, 27 tests):
+Ported and passing (`ctest`, 29 tests):
 
 - Pure host libraries: pacing, quickfix (window mode, race display, widescreen, cursor, aspect), Vulkan extension
   selection, memory card store, license guard, MTVU measure/journal/runtime, pad mapping, shape observer/capture.
@@ -55,12 +55,17 @@ Ported and passing (`ctest`, 27 tests):
   default output device, stereo 16-bit 48 kHz; a buffer counts as done once the device has pulled all of its bytes,
   as `WHDR_DONE` on Windows, so the blocking and paced paths and their rate control are unchanged. Measured on this
   port's control: 3 s of paced audio at 60 Hz, 0 underruns, worst push 0.023 ms, ratio 1.0012.
+- RetroAchievements (`achievements.cpp`, vendored rcheevos): web requests through the system libcurl
+  (`achievements_http_curl.cpp`; cancel wakes `curl_multi_poll`, so a stalled server is left at once, as closing the
+  WinHTTP handle does). The overlay (`achievements_overlay_mac.mm`) is a borderless, click-through child window of
+  the game's NSWindow with the same layout, drawn with CoreGraphics/CoreText at the screen's backing scale; the badge
+  cache is under the system temporary folder, as on Windows. The overlay drawing was checked visually; the controls
+  cover configuration, memory mapping, the rcheevos session, toast animation and loopback cancellation.
 - `native/posix_compat.hpp`: `fopen_s`, `tmpfile_s`, `_putenv_s`, `GetEnvironmentVariableA`, `GetCurrentProcessId`,
   `GetTickCount64` with Windows return conventions, for code shared with Windows.
 
 Remaining for milestone 1:
 
-- `achievements_http.cpp` (WinHTTP) and `achievements_overlay.cpp` (GDI+).
 - `native_vulkan.cpp`: Vulkan loader and Win32 surface to MoltenVK and a Metal-layer surface (SDL3 window).
 - `window.cpp`: Win32 window, VBlank hook and F-keys to SDL3.
 
