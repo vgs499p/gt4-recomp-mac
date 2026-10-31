@@ -225,7 +225,8 @@ class Session {
 };
 
 // A child process in a Job Object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: closing the job (destructor) ends it.
-// POSIX: a posix_spawn child that the destructor kills (SIGKILL) and reaps when it still runs.
+// POSIX: a posix_spawn child that the destructor kills (SIGKILL) and reaps when it still runs; children still running
+// at a normal process exit are killed by an atexit handler. Nothing ends them when this process is itself killed.
 class ChildProcess {
  public:
   ChildProcess() = default;
@@ -258,5 +259,9 @@ NativeHandle open_process_for_wait(std::uint32_t pid);
 void close_handle(NativeHandle handle);
 std::uint32_t current_process_id();
 std::wstring widen(const std::string &text);
+#ifndef _WIN32
+// UTF-32 (wchar_t on POSIX) to UTF-8, the inverse of widen.
+std::string narrow(const std::wstring &text);
+#endif
 
 }  // namespace gs_stream::ipc

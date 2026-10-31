@@ -19,6 +19,8 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <cstdlib>
+#include <mutex>
 #include <vector>
 
 extern char **environ;
@@ -143,6 +145,8 @@ void *open_shared(const std::string &name, const std::string &session_name, std:
   return view;
 }
 
+}  // namespace
+
 std::string narrow(const std::wstring &text) {
   std::string out;
   for (const wchar_t wide : text) {
@@ -165,6 +169,8 @@ std::string narrow(const std::wstring &text) {
   }
   return out;
 }
+
+namespace {
 
 // Splits a Windows-style command line tail: arguments separated by spaces, double quotes group (and are removed).
 std::vector<std::string> split_arguments(const std::string &line) {
@@ -710,11 +716,41 @@ void Session::post_event(RecordType type, const void *payload, std::size_t bytes
 // ---------------------------------------------------------------------------------------------------------------
 
 #ifndef _WIN32
-// POSIX: process_ holds the child's pid; job_ is unused. There is no kill-on-close job, so the destructor kills a
-// child that still runs, and a child started by the game watches its parent pid (--parent) as on Windows.
+// POSIX: process_ holds the child's pid; job_ is unused. There is no kill-on-close job: the destructor kills a child
+// that still runs, and children still running when this process exits normally (std::exit, return from main) are
+// killed by an atexit handler, which covers the client's refusals. A child of a process that is itself killed is not
+// ended by anyone: a GS process watches its parent pid (--parent) instead.
+namespace {
+
+std::mutex g_children_mutex;
+std::vector<pid_t> g_children;  // started by spawn, not yet reaped
+
+void kill_children_at_exit() {
+  std::lock_guard<std::mutex> lock(g_children_mutex);
+  for (pid_t pid : g_children) {
+    ::kill(pid, SIGKILL);
+    waitpid(pid, nullptr, 0);
+  }
+  g_children.clear();
+}
+
+void track_child(pid_t pid) {
+  static const bool registered = std::atexit(kill_children_at_exit) == 0;
+  (void)registered;
+  std::lock_guard<std::mutex> lock(g_children_mutex);
+  g_children.push_back(pid);
+}
+
+void forget_child(pid_t pid) {
+  std::lock_guard<std::mutex> lock(g_children_mutex);
+  g_children.erase(std::remove(g_children.begin(), g_children.end(), pid), g_children.end());
+}
+
+}  // namespace
+
 ChildProcess::~ChildProcess() {
   if (process_ && running()) kill();
-  if (process_) waitpid(peer_pid(process_), nullptr, WNOHANG);
+  if (process_ && waitpid(peer_pid(process_), nullptr, WNOHANG) == peer_pid(process_)) forget_child(peer_pid(process_));
 }
 
 ChildProcess::ChildProcess(ChildProcess &&other) noexcept
@@ -749,6 +785,7 @@ ChildProcess ChildProcess::spawn(const std::wstring &executable, const std::wstr
     errno = result;
     throw IpcError(last_error_text("posix_spawn") + " for " + path);
   }
+  track_child(pid);
   ChildProcess child;
   child.pid_ = static_cast<std::uint32_t>(pid);
   child.process_ = reinterpret_cast<NativeHandle>(static_cast<std::uintptr_t>(pid));

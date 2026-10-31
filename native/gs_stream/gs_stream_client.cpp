@@ -8,14 +8,26 @@
 #include "../install_paths.hpp"
 #include "../display_aspect.hpp"
 
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
 #include <bcrypt.h>
+#else
+// macOS port: the game window is an SDL3 window (window.cpp), so the player's dialogs are SDL message boxes; SHA-256
+// comes from CommonCrypto.
+#include <CommonCrypto/CommonDigest.h>
+#include <SDL3/SDL_messagebox.h>
+#include <SDL3/SDL_video.h>
+#include <fcntl.h>
+#include <time.h>
+#include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cerrno>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -26,7 +38,9 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
 #pragma comment(lib, "bcrypt.lib")
+#endif
 
 namespace gt4::gs_stream {
 namespace {
@@ -82,6 +96,7 @@ std::uint32_t g_cursor_hide_delay_ms = 3000;
 // Low 32 bits: the mode; high 32 bits: the fill target aspect x 1e6 (0 = the whole window; P2, slice217).
 std::atomic<std::uint64_t> g_display_aspect_wanted{0};
 
+#ifdef _WIN32
 // CPU time of the calling thread in microseconds (UINT64_MAX when unavailable).
 std::uint64_t thread_cpu_us() {
   FILETIME created{}, exited{}, kernel{}, user{};
@@ -100,10 +115,39 @@ std::uint64_t elapsed_ns(LARGE_INTEGER from, LARGE_INTEGER to) {
   const std::uint64_t ticks = static_cast<std::uint64_t>(to.QuadPart - from.QuadPart);
   return ticks / frequency * 1000000000ull + ticks % frequency * 1000000000ull / frequency;
 }
+#else
+std::uint64_t thread_cpu_us() {
+  timespec value{};
+  if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &value) != 0) return UINT64_MAX;
+  return static_cast<std::uint64_t>(value.tv_sec) * 1000000u + static_cast<std::uint64_t>(value.tv_nsec) / 1000u;
+}
+
+// The QueryPerformanceCounter calls below, on the monotonic clock in nanoseconds.
+struct LARGE_INTEGER {
+  long long QuadPart;
+};
+void QueryPerformanceCounter(LARGE_INTEGER *value) {
+  timespec now{};
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  value->QuadPart = static_cast<long long>(now.tv_sec) * 1000000000ll + now.tv_nsec;
+}
+void QueryPerformanceFrequency(LARGE_INTEGER *value) { value->QuadPart = 1000000000ll; }
+std::uint64_t elapsed_ns(LARGE_INTEGER from, LARGE_INTEGER to) { return static_cast<std::uint64_t>(to.QuadPart - from.QuadPart); }
+#endif
 
 constexpr const char *kPrivilegedNames[kPrivilegedRegisterSlots] = {
     "PMODE", "SMODE1", "SMODE2", "SRFSH", "SYNCH1", "SYNCH2", "SYNCV", "DISPFB1", "DISPLAY1", "DISPFB2",
     "DISPLAY2", "EXTBUF", "EXTDATA", "EXTWRITE", "BGCOLOR", "CSR", "IMR", "BUSDIR", "SIGLBLID", "other"};
+
+// The GS process file name in the player's messages.
+#ifdef _WIN32
+#define GT4_GS_PROCESS_NAME L"gt4-gs.exe"
+#else
+#define GT4_GS_PROCESS_NAME L"gt4-gs"
+#endif
+
+#ifdef _WIN32
+using GameWindow = HWND;
 
 // A visible top-level window of this process (the game window exists before the GS process starts), or null.
 HWND visible_game_window() {
@@ -139,12 +183,53 @@ void offer_restart(HWND window, const std::wstring &what) {
   }
 }
 
+GameWindow game_window_from_handle(std::uint64_t window) { return reinterpret_cast<HWND>(static_cast<std::uintptr_t>(window)); }
+#else
+using GameWindow = SDL_Window *;
+
+// A shown SDL window of this process (the game window exists before the GS process starts), or null. Null also when
+// SDL video is not initialized (headless runs and the fixtures).
+SDL_Window *visible_game_window() {
+  int count = 0;
+  SDL_Window **windows = SDL_GetWindows(&count);
+  if (!windows) return nullptr;
+  SDL_Window *found = nullptr;
+  for (int i = 0; i < count && !found; ++i)
+    if (!(SDL_GetWindowFlags(windows[i]) & SDL_WINDOW_HIDDEN) && !SDL_GetWindowParent(windows[i])) found = windows[i];
+  SDL_free(windows);
+  return found;
+}
+
+std::wstring wide_text(const std::string &text) { return ipc::widen(text); }
+
+// Asks the player whether to restart with the built-in renderer; prints the launcher marker on yes.
+void offer_restart(SDL_Window *window, const std::wstring &what) {
+  const std::string text = ipc::narrow(what) + "\n\nDetails are in the game log.\n\nRestart the game with the built-in "
+                                               "renderer (CoreGS 1.1)?";
+  const SDL_MessageBoxButtonData buttons[] = {
+      {SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "No"},
+      {SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Yes"},
+  };
+  const SDL_MessageBoxData box{SDL_MESSAGEBOX_ERROR, window, "GT4Recomp: GS renderer", text.c_str(), 2, buttons, nullptr};
+  int answer = 0;
+  if (SDL_ShowMessageBox(&box, &answer) && answer == 1) {
+    std::fprintf(stderr, "%s\n", kRestartMarker);
+    std::fflush(stderr);
+  }
+}
+
+// The game window is an SDL_Window pointer on macOS (window.cpp passes it to attach_window).
+GameWindow game_window_from_handle(std::uint64_t window) {
+  return reinterpret_cast<SDL_Window *>(static_cast<std::uintptr_t>(window));
+}
+#endif
+
 [[noreturn]] void refuse(const std::string &message) {
   std::fprintf(stderr, "[gs-ipc] %s; refusing to start\n", message.c_str());
   std::fflush(stderr);
   // The game window is already open in a windowed run: say why it closes (headless runs have no window).
-  if (HWND window = visible_game_window())
-    offer_restart(window, L"The GS renderer (gt4-gs.exe) could not start:\n" + wide_text(message) + L".");
+  if (GameWindow window = visible_game_window())
+    offer_restart(window, L"The GS renderer (" GT4_GS_PROCESS_NAME L") could not start:\n" + wide_text(message) + L".");
   std::exit(EXIT_FAILURE);
 }
 
@@ -362,9 +447,13 @@ class Client {
   }
 
   void attach(std::uint64_t window, std::uint32_t width, std::uint32_t height) {
+#ifdef _WIN32
     // The GS process draws into a child of our window: the parent must not paint over it.
     const HWND parent = reinterpret_cast<HWND>(static_cast<std::uintptr_t>(window));
     SetWindowLongPtrW(parent, GWL_STYLE, GetWindowLongPtrW(parent, GWL_STYLE) | WS_CLIPCHILDREN);
+#endif
+    // macOS: another process cannot draw into a child of this window; how the GS process presents there is open
+    // (docs/MACOS-PORT.md, milestone 3). The CONTROL record carries the handle as on Windows.
     window_ = window;
     control(proto::ControlKind::attach_window, window, width, height);
     // TASK-060 (protocol 1.2): the GS child window applies the same cursor rule as this window. An older consumer
@@ -454,8 +543,8 @@ class Client {
     if (dead_ && window_) {
       // The player sees a window that stopped updating: say why. The guest ran on for the grace VSYNCs after the GS
       // process died, so a changed memory card was written by the runtime (50 quiet VSYNCs) before the halt.
-      offer_restart(reinterpret_cast<HWND>(static_cast<std::uintptr_t>(window_)),
-                    L"The GS renderer process (gt4-gs.exe) stopped" +
+      offer_restart(game_window_from_handle(window_),
+                    L"The GS renderer process (" GT4_GS_PROCESS_NAME L") stopped" +
                         (exit_known_ ? L" with exit code " + std::to_wstring(exit_code_) : std::wstring()) +
                         L".\nThe game will now close. Your memory card was saved.");
     }
@@ -490,7 +579,11 @@ class Client {
     const std::string process_path = gs_process_path();
     const char *process = process_path.c_str();
     if (process_path.empty())
+#ifdef _WIN32
       refuse("GT4_RENDERER=pcsx2 needs GT4_GS_PROCESS=<path of the GS process> or <game folder>\\gs\\gt4-gs.exe");
+#else
+      refuse("GT4_RENDERER=pcsx2 needs GT4_GS_PROCESS=<path of the GS process> or <game folder>/gs/gt4-gs");
+#endif
     handshake_timeout_ms_ = environment_number("GT4_GS_HANDSHAKE_TIMEOUT_MS", kHandshakeTimeoutMs, kHandshakeTimeoutMinMs,
                                                kHandshakeTimeoutMaxMs);
     lost_grace_frames_ = environment_number("GT4_GS_LOST_GRACE_FRAMES", kLostGraceFrames, 0, kLostGraceMaxFrames);
@@ -512,7 +605,7 @@ class Client {
     }
     std::wstring config_argument;
     if (const char *config = std::getenv("GT4_GS_CONFIG"); config && *config) {
-      if (GetFileAttributesW(ipc::widen(config).c_str()) == INVALID_FILE_ATTRIBUTES)
+      if (!std::filesystem::exists(std::filesystem::path(ipc::widen(config))))
         refuse(std::string("GT4_GS_CONFIG=") + config + " does not exist");
       config_argument = L" --config \"" + ipc::widen(config) + L"\"";
     }
@@ -921,6 +1014,7 @@ constexpr std::uint64_t kLcAnalog = 32, kLcHdtv = 22, kLcVga = 15;
 
 }  // namespace
 
+#ifdef _WIN32
 bool file_sha256(const std::wstring &path, std::string &hex, std::string &error) {
   HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
   if (file == INVALID_HANDLE_VALUE) {
@@ -950,6 +1044,35 @@ bool file_sha256(const std::wstring &path, std::string &hex, std::string &error)
     error = "SHA-256 computation failed";
     return false;
   }
+#else
+bool file_sha256(const std::wstring &path, std::string &hex, std::string &error) {
+  const int file = open(ipc::narrow(path).c_str(), O_RDONLY | O_CLOEXEC);
+  if (file < 0) {
+    error = std::string("open failed (") + std::strerror(errno) + ")";
+    return false;
+  }
+  CC_SHA256_CTX context;
+  CC_SHA256_Init(&context);
+  std::vector<unsigned char> buffer(1 << 20);
+  bool ok = true;
+  for (;;) {
+    const ssize_t read_bytes = read(file, buffer.data(), buffer.size());
+    if (read_bytes < 0 && errno == EINTR) continue;
+    if (read_bytes < 0) {
+      ok = false;
+      break;
+    }
+    if (read_bytes == 0) break;
+    CC_SHA256_Update(&context, buffer.data(), static_cast<CC_LONG>(read_bytes));
+  }
+  close(file);
+  unsigned char digest[CC_SHA256_DIGEST_LENGTH] = {};
+  CC_SHA256_Final(digest, &context);
+  if (!ok) {
+    error = "SHA-256 computation failed (read error)";
+    return false;
+  }
+#endif
   static const char digits[] = "0123456789abcdef";
   hex.clear();
   for (unsigned char byte : digest) {

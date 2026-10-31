@@ -29,7 +29,7 @@ On Apple platforms the root `CMakeLists.txt` hands off to `ports/macos/CMakeList
 
 ### Milestone 1 detail
 
-Ported and passing (`ctest`, 25 tests):
+Ported and passing (`ctest`, 26 tests):
 
 - Pure host libraries: pacing, quickfix (window mode, race display, widescreen, cursor, aspect), Vulkan extension
   selection, memory card store, license guard, MTVU measure/journal/runtime, pad mapping, shape observer/capture.
@@ -43,13 +43,26 @@ Ported and passing (`ctest`, 25 tests):
   Child processes use `posix_spawn`; there is no kill-on-close job, so `ChildProcess` kills a running child on
   destruction and children keep watching their parent pid. macOS limits shared memory names to 31 characters, so
   the objects are named `/gs<last 24 hex digits of the session name>m` and `...w`.
+- `gs_stream/gs_stream_client.cpp` (game side) and `tools/gs_stream_record` (test consumer): thread CPU time and the
+  OSD timers on `CLOCK_THREAD_CPUTIME_ID` / `CLOCK_MONOTONIC`; the GS process pin through CommonCrypto SHA-256; the
+  player's "restart with the built-in renderer" dialog is an SDL3 message box on the game's SDL window. Children still
+  running at a normal exit of the game (including every refusal) are killed by an atexit handler. **Difference from
+  Windows:** there is no kill-on-close job, so a GS process whose game is killed (SIGKILL) is not ended by the system;
+  the GS process must watch its `--parent` pid (`gs_stream_record` does, through the session peer checks). The
+  `native_gs_stream_client` control checks this difference instead of the job.
 - `native/posix_compat.hpp`: `fopen_s`, `tmpfile_s`, `_putenv_s`, `GetEnvironmentVariableA`, `GetCurrentProcessId`,
   `GetTickCount64` with Windows return conventions, for code shared with Windows.
 
 Remaining for milestone 1:
 
-- `gs_stream/gs_stream_client.cpp` and its fixture (process launch, file hashing).
 - `host_io.cpp`: WinMM audio, XInput and keyboard to SDL3 audio, gamepad and keyboard.
 - `achievements_http.cpp` (WinHTTP) and `achievements_overlay.cpp` (GDI+).
 - `native_vulkan.cpp`: Vulkan loader and Win32 surface to MoltenVK and a Metal-layer surface (SDL3 window).
 - `window.cpp`: Win32 window, VBlank hook and F-keys to SDL3.
+
+Open design points:
+
+- **GS process presentation (milestone 3).** On Windows the GS process draws into a child of the game window
+  (CONTROL attach_window carries the HWND). macOS has no cross-process child windows; candidates are a GS-owned window
+  kept on top of the game window, or an IOSurface / `CAMetalLayer` shared through a Mach port. `attach_window` sends the
+  game's `SDL_Window` pointer as a placeholder until this is decided.

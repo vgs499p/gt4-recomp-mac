@@ -29,9 +29,25 @@
 #include "gs_stream_file.hpp"
 #include "gs_stream_ipc.hpp"
 
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#else
+// macOS port: the Win32 calls of this fixture on POSIX. There is no kill-on-close job: the client's children are
+// killed at a normal exit of the game (gs_stream_ipc.cpp), and a killed game's GS process must watch its parent pid.
+#include "../posix_compat.hpp"
+#include <mach-o/dyld.h>
+#include <signal.h>
+#include <sys/stat.h>
+#include <filesystem>
+using HANDLE = void *;
+void Sleep(DWORD ms) { usleep(static_cast<useconds_t>(ms) * 1000); }
+[[noreturn]] void ExitProcess(unsigned code) { _exit(static_cast<int>(code)); }
+DWORD GetTickCount() { return static_cast<DWORD>(GetTickCount64()); }
+bool CreateDirectoryA(const char *path, void *) { return mkdir(path, 0755) == 0; }
+bool DeleteFileA(const char *path) { return unlink(path) == 0; }
+#endif
 
 #include <cstdio>
 #include <cstdlib>
@@ -205,9 +221,16 @@ int scenario_main(const std::string &scenario, std::uint32_t frames) {
 // --- parent side ---
 
 std::wstring this_executable() {
+#ifdef _WIN32
   wchar_t path[MAX_PATH];
   const DWORD length = GetModuleFileNameW(nullptr, path, MAX_PATH);
   return std::wstring(path, length);
+#else
+  char path[4096];
+  std::uint32_t size = sizeof path;
+  if (_NSGetExecutablePath(path, &size) != 0) throw std::runtime_error("executable path too long");
+  return gs_stream::ipc::widen(path);
+#endif
 }
 
 struct Env {
@@ -238,7 +261,11 @@ std::vector<char> read_all(const std::string &path) {
   return std::vector<char>(std::istreambuf_iterator<char>(file), {});
 }
 
+#ifdef _WIN32
 bool exists(const std::string &path) { return GetFileAttributesA(path.c_str()) != INVALID_FILE_ATTRIBUTES; }
+#else
+bool exists(const std::string &path) { return std::filesystem::exists(path); }
+#endif
 
 // The pid a fake GS process wrote to its pid file (0 if none yet).
 DWORD read_pid(const std::string &path) {
@@ -249,6 +276,7 @@ DWORD read_pid(const std::string &path) {
 }
 
 // True when process `pid` ends within `timeout_ms` (or is already gone).
+#ifdef _WIN32
 bool process_ends(DWORD pid, DWORD timeout_ms) {
   HANDLE process = OpenProcess(SYNCHRONIZE, FALSE, pid);
   if (!process) return true;
@@ -256,6 +284,18 @@ bool process_ends(DWORD pid, DWORD timeout_ms) {
   CloseHandle(process);
   return ended;
 }
+#else
+// The pid is not our child here (it is the scenario's): poll kill(pid, 0). A zombie still answers, so a process
+// counts as ended once it is gone or a zombie (its parent has not reaped it yet).
+bool process_ends(DWORD pid, DWORD timeout_ms) {
+  const std::uint64_t start = GetTickCount64();
+  for (;;) {
+    if (kill(static_cast<pid_t>(pid), 0) != 0) return true;
+    if (GetTickCount64() - start >= timeout_ms) return false;
+    usleep(10000);
+  }
+}
+#endif
 
 void check_stream_file(const std::string &path, std::uint32_t frames) {
   FileReader reader;
@@ -534,9 +574,9 @@ int main(int argc, char **argv) {
     const std::string recorder = argv[1];
     const std::string scratch = argv[2];
     CreateDirectoryA(scratch.c_str(), nullptr);
-    const std::string donor_file = scratch + "\\donor-capture.gscap";
-    const std::string pcsx2_capture = scratch + "\\pcsx2-capture.gscap";
-    const std::string recorded = scratch + "\\pcsx2-recorded.gscap";
+    const std::string donor_file = scratch + "/donor-capture.gscap";
+    const std::string pcsx2_capture = scratch + "/pcsx2-capture.gscap";
+    const std::string recorded = scratch + "/pcsx2-recorded.gscap";
     for (const std::string &path : {donor_file, pcsx2_capture, recorded}) DeleteFileA(path.c_str());
 
     require(run_scenario("donor", {}) == 0, "donor scenario");
@@ -546,7 +586,7 @@ int main(int argc, char **argv) {
     std::string recorder_sha, hash_error;
     require(gt4::gs_stream::file_sha256(gs_stream::ipc::widen(recorder), recorder_sha, hash_error) && recorder_sha.size() == 64,
             "SHA-256 of the recorder");
-    const std::string config = scratch + "\\gt4-gs.ini";
+    const std::string config = scratch + "/gt4-gs.ini";
     {
       std::ofstream ini(config, std::ios::binary);
       ini << "[EmuCore/GS]\nupscale_multiplier = 1\n";
@@ -566,8 +606,8 @@ int main(int argc, char **argv) {
             "recorder file equals the in-process capture plus CONTROL shutdown");
     std::puts("[fixture] donor capture, pcsx2 capture and recorder file are byte-identical");
     // TASK-041: privileged writes queued behind held worker output reach the stream in the same order.
-    const std::string ordered_capture = scratch + "\\pcsx2-ordered-capture.gscap";
-    const std::string ordered_recorded = scratch + "\\pcsx2-ordered-recorded.gscap";
+    const std::string ordered_capture = scratch + "/pcsx2-ordered-capture.gscap";
+    const std::string ordered_recorded = scratch + "/pcsx2-ordered-recorded.gscap";
     for (const std::string &path : {ordered_capture, ordered_recorded}) DeleteFileA(path.c_str());
     require(run_scenario("pcsx2-ordered", {{"GT4_RENDERER", "pcsx2"}, {"GT4_GS_PROCESS", recorder},
                                            {"GT4_GS_RECORD_OUTPUT", ordered_recorded},
@@ -579,8 +619,8 @@ int main(int argc, char **argv) {
 
     // TASK-060/062 (protocol 1.2): CONTROL cursor after attach_window, OSD_STATS about every 0.5 s to a consumer that
     // asked for them, and never in the .gscap capture.
-    const std::string osd_result = scratch + "\\osd.pid";
-    const std::string osd_capture = scratch + "\\osd-capture.gscap";
+    const std::string osd_result = scratch + "/osd.pid";
+    const std::string osd_capture = scratch + "/osd-capture.gscap";
     for (const std::string &path : {osd_result + ".osd", osd_capture}) DeleteFileA(path.c_str());
     require(run_scenario("osd", {{"GT4_RENDERER", "pcsx2"}, {"GT4_GS_PROCESS", argv[0]}, {"GT4_FIXTURE_CHILD", "osd"},
                                  {"GT4_FIXTURE_PID_FILE", osd_result}, {"GT4_GS_CAPTURE", osd_capture}},
@@ -626,8 +666,8 @@ int main(int argc, char **argv) {
 
     // TASK-080 (protocol 1.3): a 1.3 consumer gets CONTROL display_aspect once per change (fill, then game aspect),
     // each right after a VSYNC, and the records are part of the stream like CONTROL cursor.
-    const std::string aspect_result = scratch + "\\aspect.pid";
-    const std::string aspect_capture = scratch + "\\aspect-capture.gscap";
+    const std::string aspect_result = scratch + "/aspect.pid";
+    const std::string aspect_capture = scratch + "/aspect-capture.gscap";
     for (const std::string &path : {aspect_result + ".osd", aspect_capture}) DeleteFileA(path.c_str());
     require(run_scenario("osd", {{"GT4_RENDERER", "pcsx2"}, {"GT4_GS_PROCESS", argv[0]}, {"GT4_FIXTURE_CHILD", "osd"},
                                  {"GT4_FIXTURE_READY_MINOR", "3"}, {"GT4_FIXTURE_PID_FILE", aspect_result},
@@ -675,7 +715,7 @@ int main(int argc, char **argv) {
                                           {"GT4_GS_PROCESS_SHA256", std::string(64, '0')}}) == 1,
             "GS process with another SHA-256 refused");
     require(run_scenario("bad-config", {{"GT4_RENDERER", "pcsx2"}, {"GT4_GS_PROCESS", recorder},
-                                        {"GT4_GS_CONFIG", scratch + "\\missing.ini"}}) == 1,
+                                        {"GT4_GS_CONFIG", scratch + "/missing.ini"}}) == 1,
             "missing GT4_GS_CONFIG file refused");
     const std::string self(argv[0]);
     // early-exit: GT4_GS_PROCESS points at a program that exits at once (this fixture with an unknown argument list).
@@ -687,7 +727,7 @@ int main(int argc, char **argv) {
             "GS process death mid-stream halts once, after the grace VSYNCs");
 
     // TASK-038: handshake timeout with a clear message, and the job ends the silent GS process with the game.
-    const std::string silent_pid = scratch + "\\silent.pid";
+    const std::string silent_pid = scratch + "/silent.pid";
     DeleteFileA(silent_pid.c_str());
     const DWORD timeout_start = GetTickCount();
     require(run_scenario("handshake-timeout", {{"GT4_RENDERER", "pcsx2"}, {"GT4_GS_PROCESS", self},
@@ -699,11 +739,11 @@ int main(int argc, char **argv) {
     require(timeout_elapsed >= 1400 && timeout_elapsed < 15000, "refused after the configured handshake timeout");
     const DWORD silent = read_pid(silent_pid);
     require(silent != 0, "the silent GS process wrote its pid");
-    require(process_ends(silent, 3000), "the job ended the silent GS process with the game");
+    require(process_ends(silent, 3000), "the job (macOS: the exit handler) ended the silent GS process with the game");
     std::puts("[fixture] handshake timeout: refused, silent GS process ended by the job");
 
     // TASK-038: the game is killed; the GS process ignores the game, so only the kill-on-close job can end it.
-    const std::string hang_pid = scratch + "\\hang.pid";
+    const std::string hang_pid = scratch + "/hang.pid";
     DeleteFileA(hang_pid.c_str());
     for (const char *name : {"GT4_GS_PROCESS", "GT4_FIXTURE_CHILD", "GT4_FIXTURE_PID_FILE", "GT4_RENDERER"}) _putenv_s(name, "");
     _putenv_s("GT4_RENDERER", "pcsx2");
@@ -717,13 +757,28 @@ int main(int argc, char **argv) {
       require(hung != 0, "the hanging GS process started");
       Sleep(500);  // the game finishes its handshake
       require(!process_ends(hung, 0), "the hanging GS process runs while the game runs");
+#ifdef _WIN32
       TerminateProcess(game.process(), 1);
+#else
+      kill(static_cast<pid_t>(game.pid()), SIGKILL);
+#endif
       std::uint32_t code = 0;
       require(game.wait_exit(5000, &code), "the game process ended");
+#ifdef _WIN32
       require(process_ends(hung, 3000), "the job ended the GS process after the game was killed");
+#else
+      // macOS has no kill-on-close job: a GS process that ignores its killed game keeps running. The real GS process
+      // and gs_stream_record watch the parent pid instead; this fixture child does not, so end it here.
+      require(!process_ends(hung, 500), "without a job the ignoring GS process outlives a killed game");
+      kill(static_cast<pid_t>(hung), SIGKILL);
+#endif
     }
     for (const char *name : {"GT4_GS_PROCESS", "GT4_FIXTURE_CHILD", "GT4_FIXTURE_PID_FILE", "GT4_RENDERER"}) _putenv_s(name, "");
+#ifdef _WIN32
     std::puts("[fixture] game killed: GS process ended by the job");
+#else
+    std::puts("[fixture] game killed: no job on macOS; the GS process must watch its parent pid (documented)");
+#endif
     std::puts("[fixture] all checks passed");
     return 0;
   } catch (const std::exception &error) {

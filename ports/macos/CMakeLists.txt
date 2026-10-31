@@ -97,3 +97,20 @@ target_compile_options(gt4_gs_stream PRIVATE ${GT4_WARNINGS})
 gt4_fixture(native_gs_stream_ipc gs_stream_ipc_fixture SOURCES "${GT4_NATIVE}/gs_stream/gs_stream_ipc_fixture.cpp"
     LINK gt4_gs_stream)
 set_tests_properties(native_gs_stream_ipc PROPERTIES RUN_SERIAL TRUE TIMEOUT 300)
+
+# GS stream client (game side) and its control; gs_stream_record is the test consumer it launches. The client shows
+# the player's dialogs with SDL3 message boxes (Homebrew sdl3 3.4.18, the version native/CMakeLists.txt pins).
+find_package(SDL3 3.4.18 REQUIRED CONFIG)
+add_library(gt4_gs_stream_client STATIC "${GT4_NATIVE}/gs_stream/gs_stream_client.cpp")
+target_link_libraries(gt4_gs_stream_client PUBLIC gt4_gs_stream gt4_perf_probe gt4_install_paths gt4_quickfix
+    SDL3::SDL3)
+target_include_directories(gt4_gs_stream_client PUBLIC "${GT4_NATIVE}")
+target_compile_options(gt4_gs_stream_client PRIVATE ${GT4_WARNINGS})
+target_compile_definitions(gt4_gs_stream_client INTERFACE GT4_GS_STREAM_CLIENT)
+add_executable(gs_stream_record "${CMAKE_SOURCE_DIR}/tools/gs_stream_record/gs_stream_record.cpp")
+target_link_libraries(gs_stream_record PRIVATE gt4_gs_stream)
+target_compile_options(gs_stream_record PRIVATE ${GT4_WARNINGS})
+gt4_fixture(native_gs_stream_client gs_stream_client_fixture
+    SOURCES "${GT4_NATIVE}/gs_stream/gs_stream_client_fixture.cpp" LINK gt4_gs_stream_client
+    ARGS $<TARGET_FILE:gs_stream_record> "${CMAKE_BINARY_DIR}/gs-stream-client-scratch")
+set_tests_properties(native_gs_stream_client PROPERTIES RUN_SERIAL TRUE TIMEOUT 300)

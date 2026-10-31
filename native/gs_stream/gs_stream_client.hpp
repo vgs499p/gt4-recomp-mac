@@ -83,7 +83,8 @@ void on_gif_reset();
 // BIOS SetGsCrt: posts the SMODE1/SMODE2 writes the BIOS performs, and SYNCV for the analog NTSC/PAL modes (the
 // donor HLE only records the arguments).
 void on_set_gs_crt(std::uint32_t interlace, std::uint32_t mode, std::uint32_t field);
-// Window: the GS process renders into a child of this window (CONTROL attach_window / resize).
+// Window: the GS process renders into a child of this window (CONTROL attach_window / resize). On macOS `window` is
+// the game's SDL_Window pointer.
 bool attach_window(std::uint64_t window, std::uint32_t width, std::uint32_t height);
 // TASK-060 (protocol 1.2): the mouse cursor policy the game window uses (GT4_CURSOR_AUTOHIDE, native/cursor_autohide.hpp).
 // Call before attach_window; attach_window then sends CONTROL cursor to a 1.2 consumer, so the GS child window hides the
@@ -150,7 +151,7 @@ struct OsdSample {
 ::gs_stream::OsdStatsPayload make_osd_stats(const OsdSample &begin, const OsdSample &end, std::uint64_t max_frame_us,
                                             double budget_ms = 1000.0 / 59.94);
 
-// SHA-256 of a file as 64 lowercase hex digits (Windows CNG). Used for the GS process pin (GT4_GS_PROCESS_SHA256).
+// SHA-256 of a file as 64 lowercase hex digits (Windows CNG; CommonCrypto on macOS). Used for the GS process pin (GT4_GS_PROCESS_SHA256).
 bool file_sha256(const std::wstring &path, std::string &hex, std::string &error);
 
 // SetGsCrt (interlace, mode, field) to the SMODE1/SMODE2 values the BIOS writes; false for an unknown mode.
