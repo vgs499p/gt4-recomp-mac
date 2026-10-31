@@ -15,6 +15,12 @@
 // death of the peer ends the wait with PeerExited instead of a hang.
 //
 // Threading: one producer thread and one consumer thread per ring. The Session object itself is not shared.
+//
+// macOS / POSIX: the mapping is a POSIX shared memory object ("/gs<last 24 hex digits of the name>m") and the four
+// events are four 32-bit wake counters in a second object ("...w"). A signal increments its counter and wakes one
+// waiter (os_sync_wake_by_address_any, shared); a sleeper waits while the counter still holds the value it read
+// before re-checking its condition, so the waiter-flag protocol above is unchanged. A peer process "handle" is its
+// pid; sleeps last at most one slice and check that the pid is still alive. The ControlBlock layout is identical.
 #pragma once
 
 #include "gs_stream_protocol.h"
@@ -27,7 +33,7 @@
 
 namespace gs_stream::ipc {
 
-using NativeHandle = void *;  // HANDLE on Windows
+using NativeHandle = void *;  // HANDLE on Windows; the pid (as an integer) of a peer process on POSIX
 
 class IpcError : public std::runtime_error {
  public:
@@ -196,11 +202,18 @@ class Session {
 
   bool producer_ = false;
   std::string name_;
+#ifdef _WIN32
   NativeHandle mapping_ = nullptr;
+#endif
   std::uint8_t *view_ = nullptr;
   ControlBlock *control_ = nullptr;
   std::uint8_t *response_ = nullptr;
+#ifdef _WIN32
   NativeHandle events_[4] = {};
+#else
+  std::uint64_t mapped_bytes_ = 0;
+  std::uint32_t *wake_words_ = nullptr;  // the four wake counters (Wake order), in their own shared object
+#endif
   NativeHandle peer_ = nullptr;
   std::uint32_t spin_us_ = 30;
   std::uint64_t data_wake_bytes_ = kDefaultDataWakeBytes;
@@ -212,6 +225,7 @@ class Session {
 };
 
 // A child process in a Job Object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: closing the job (destructor) ends it.
+// POSIX: a posix_spawn child that the destructor kills (SIGKILL) and reaps when it still runs.
 class ChildProcess {
  public:
   ChildProcess() = default;

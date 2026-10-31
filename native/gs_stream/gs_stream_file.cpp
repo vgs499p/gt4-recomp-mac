@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // GS stream files (.gscap version 2); see gs_stream_file.hpp.
 #include "gs_stream_file.hpp"
+#include "../posix_compat.hpp"
 
 #include <cstring>
 #include <stdexcept>

@@ -2,7 +2,13 @@
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include <cerrno>
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 #include <iomanip>
 #include <locale>
@@ -116,6 +122,33 @@ std::string serialize_capture(const ShapeObserver &observer, CaptureStopReason r
 void export_capture(const std::filesystem::path &destination,
                     const ShapeObserver &observer, CaptureStopReason reason) {
   const auto json = serialize_capture(observer, reason);
+#ifndef _WIN32
+  // POSIX: O_EXCL matches CREATE_NEW; on failure the newly created file is removed by path.
+  const int file = ::open(destination.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0644);
+  if (file < 0)
+    throw std::system_error(errno, std::system_category(), "Create capture");
+  int error = 0;
+  std::size_t written = 0;
+  while (written < json.size()) {
+    const ssize_t count = ::write(file, json.data() + written, json.size() - written);
+    if (count < 0) {
+      if (errno == EINTR) continue;
+      error = errno;
+      break;
+    }
+    if (count == 0) { error = EIO; break; }
+    written += static_cast<std::size_t>(count);
+  }
+  if (!error && ::fsync(file) != 0) error = errno;
+  if (error) {
+    ::close(file);
+    const bool removed = ::unlink(destination.c_str()) == 0;
+    throw std::system_error(error, std::system_category(),
+                            removed ? "Write capture" : "Write capture; partial file cleanup failed");
+  }
+  if (::close(file) != 0)
+    throw std::system_error(errno, std::system_category(), "Close capture");
+#else
   const auto file = CreateFileW(destination.c_str(), GENERIC_WRITE | DELETE, 0, nullptr,
                                 CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
   if (file == INVALID_HANDLE_VALUE)
@@ -142,6 +175,7 @@ void export_capture(const std::filesystem::path &destination,
   }
   if (!CloseHandle(file))
     throw std::system_error(static_cast<int>(GetLastError()), std::system_category(), "Close capture");
+#endif
 }
 
 } // namespace gt4::observation

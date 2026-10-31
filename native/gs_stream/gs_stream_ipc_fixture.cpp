@@ -9,9 +9,16 @@
 // consumer seeing its peer die.
 #include "gs_stream_ipc.hpp"
 
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#else
+#include <mach-o/dyld.h>
+#include <unistd.h>
+
+#include <vector>
+#endif
 
 #include <atomic>
 #include <chrono>
@@ -63,7 +70,11 @@ void check_layout() {
   require(c.command_offset == 4096 && c.command_capacity == 8192 && c.response_offset == 4096 + 8192, "regions");
   require(std::string(c.serial) == "TEST-00001", "serial");
   require(session->commands_out().max_payload() == 4096 - 16, "max payload is capacity/2 minus the header");
+#ifdef _WIN32
   require(session->name().rfind("Local\\gt4gs-test-", 0) == 0, "session name prefix");
+#else
+  require(session->name().rfind("gt4gs-test-", 0) == 0, "session name prefix");
+#endif
   bool rejected = false;
   try {
     Session::create_producer(small_options(1000));
@@ -85,7 +96,11 @@ void check_layout() {
   require(consumer->control().producer_pid == current_process_id(), "consumer sees the producer pid");
   rejected = false;
   try {
+#ifdef _WIN32
     Session::open_consumer("Local\\gt4gs-test-missing");
+#else
+    Session::open_consumer("gt4gs-test-missing-000000000000000000000000");  // well formed, never created
+#endif
   } catch (const IpcError &) {
     rejected = true;
   }
@@ -179,7 +194,11 @@ std::uint64_t serve(Session &consumer, std::uint64_t die_after = 0, std::uint32_
   for (;;) {
     consumer.next_command(view);
     ++seen;
+#ifdef _WIN32
     if (die_after && seen == die_after) ExitProcess(9);  // abrupt death: no EXITING, no release
+#else
+    if (die_after && seen == die_after) _exit(9);  // abrupt death: no EXITING, no release
+#endif
     const auto type = static_cast<RecordType>(view.header->type);
     if (type == RecordType::read_fifo) {
       ReadFifoPayload request;
@@ -366,9 +385,17 @@ void check_fatal_flag() {
 }
 
 std::wstring this_executable() {
+#ifdef _WIN32
   wchar_t path[MAX_PATH];
   const DWORD length = GetModuleFileNameW(nullptr, path, MAX_PATH);
   return std::wstring(path, length);
+#else
+  std::uint32_t size = 0;
+  _NSGetExecutablePath(nullptr, &size);
+  std::vector<char> path(size + 1, '\0');
+  _NSGetExecutablePath(path.data(), &size);
+  return widen(path.data());
+#endif
 }
 
 ChildProcess spawn_child(const Session &producer_session, const char *mode) {
@@ -383,7 +410,11 @@ int child_main(const std::string &name, const std::string &mode) {
   consumer->set_peer(parent);
   consumer->control().consumer_pid = current_process_id();
   if (mode == "silent") {
+#ifdef _WIN32
     Sleep(30000);
+#else
+    sleep(30);
+#endif
     return 0;
   }
   ReadyPayload ready{};

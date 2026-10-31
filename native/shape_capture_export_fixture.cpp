@@ -1,8 +1,12 @@
 #include "shape_capture_export.hpp"
 
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#else
+#include "posix_compat.hpp"
+#endif
 
 #include <cstdio>
 #include <fstream>

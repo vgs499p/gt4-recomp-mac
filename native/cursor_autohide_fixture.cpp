@@ -4,6 +4,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <initializer_list>
 #include <stdexcept>
 
 namespace {

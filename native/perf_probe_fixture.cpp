@@ -1,4 +1,5 @@
 #include "perf_probe.hpp"
+#include "posix_compat.hpp"
 #include <cstdio>
 #include <stdexcept>
 #include <string>

@@ -1,6 +1,7 @@
 // CTest native_mtvu_measure: host-only controls for the TASK-011 step 0 counters
 // (GIF scanner, worker overlap model, interval arithmetic, report lines, switch).
 #include "mtvu_measure.hpp"
+#include "posix_compat.hpp"
 
 #include <cmath>
 #include <cstdio>

@@ -1,6 +1,17 @@
 cmake_minimum_required(VERSION 3.24)
 project(GT4Recomp VERSION 0.2.0 LANGUAGES CXX)
 
+# macOS arm64 port (ports/macos): host libraries and their controls; the Windows-qualified build below is unchanged.
+if(APPLE)
+    set(CMAKE_CXX_STANDARD 20)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+    set(CMAKE_CXX_EXTENSIONS OFF)
+    enable_testing()
+    add_compile_definitions(GT4_MTVU_RUNTIME)
+    add_subdirectory(ports/macos)
+    return()
+endif()
+
 if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
     message(FATAL_ERROR "The qualified target is Windows x86-64")
 endif()

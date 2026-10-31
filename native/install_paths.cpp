@@ -1,6 +1,11 @@
 #include "install_paths.hpp"
 
+#ifdef _WIN32
 #include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#include <vector>
+#endif
 
 #include <cstdio>
 #include <cstdlib>
@@ -17,13 +22,33 @@ constexpr const char *kShaderNames[] = {"upload", "copy_read", "copy_write", "lo
 
 std::string narrow(const std::filesystem::path &path) { return path.string(); }
 
+#ifdef _WIN32
+constexpr const char *kGsProcessName = "gt4-gs.exe";
+#else
+constexpr const char *kGsProcessName = "gt4-gs";
+#endif
+
 } // namespace
 
 std::filesystem::path executable_directory() {
+#ifdef _WIN32
   wchar_t path[32768];
   const DWORD length = GetModuleFileNameW(nullptr, path, static_cast<DWORD>(std::size(path)));
   if (length == 0 || length >= std::size(path)) return {};
   return std::filesystem::path(path).parent_path();
+#elif defined(__APPLE__)
+  uint32_t size = 0;
+  _NSGetExecutablePath(nullptr, &size);
+  std::vector<char> path(size + 1, '\0');
+  if (_NSGetExecutablePath(path.data(), &size) != 0) return {};
+  std::error_code error;
+  const std::filesystem::path resolved = std::filesystem::canonical(path.data(), error);
+  return error ? std::filesystem::path(path.data()).parent_path() : resolved.parent_path();
+#else
+  std::error_code error;
+  const std::filesystem::path resolved = std::filesystem::read_symlink("/proc/self/exe", error);
+  return error ? std::filesystem::path() : resolved.parent_path();
+#endif
 }
 
 std::filesystem::path choose_shader_directory(const std::filesystem::path &build_time_directory) {
@@ -46,7 +71,7 @@ bool has_build_time_fallback(const std::filesystem::path &build_time_directory) 
 std::filesystem::path installed_gs_process() {
   const std::filesystem::path directory = executable_directory();
   if (directory.empty()) return {};
-  const std::filesystem::path candidate = directory / "gs" / "gt4-gs.exe";
+  const std::filesystem::path candidate = directory / "gs" / kGsProcessName;
   std::error_code error;
   if (!std::filesystem::is_regular_file(candidate, error)) return {};
   return candidate;

@@ -15,8 +15,13 @@ __attribute__((weak)) void vu0_aot_report(std::FILE *) {}  // strong definition:
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#ifdef _WIN32
 #define NOMINMAX
 #include <windows.h>
+#else
+#include <ctime>
+#include "posix_compat.hpp"
+#endif
 
 namespace gt4::perf {
 namespace {
@@ -30,6 +35,11 @@ std::uint64_t wall_us() {
       std::chrono::steady_clock::now().time_since_epoch()).count());
 }
 std::uint64_t cpu_us() {
+#ifndef _WIN32
+  timespec now{};
+  if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &now) != 0) return UINT64_MAX;
+  return std::uint64_t(now.tv_sec) * 1000000u + std::uint64_t(now.tv_nsec) / 1000u;
+#else
   FILETIME created{}, exited{}, kernel{}, user{};
   if (!GetThreadTimes(GetCurrentThread(), &created, &exited, &kernel, &user))
     return UINT64_MAX;
@@ -38,6 +48,7 @@ std::uint64_t cpu_us() {
   };
   // Divide before adding: FILETIME units are 100ns, not guest cycles.
   return ticks(kernel) / 10 + ticks(user) / 10;
+#endif
 }
 constexpr const char *names[] = {
     "ee_dispatch", "vu_interpret", "iop_run", "vif_gif", "gs_host_copy",

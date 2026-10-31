@@ -2,6 +2,7 @@
 // audio is touched: the readers are pure functions over raw XInput values.
 
 #include "controls.hpp"
+#include "posix_compat.hpp"
 
 #include <cstdio>
 #include <cstdlib>
