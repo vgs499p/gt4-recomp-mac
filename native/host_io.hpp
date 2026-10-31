@@ -1,4 +1,5 @@
 #pragma once
+#ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -7,6 +8,14 @@
 #include <mmsystem.h>
 #include <Xinput.h>
 // clang-format on
+#else
+// macOS port: XInput-shaped types for the mapping API (xinput_compat.hpp), SDL3 gamepads only (GT4_INPUT=xinput is
+// refused), and the audio device is an SDL3 audio stream (host_io.cpp).
+#include "posix_compat.hpp"
+#include "xinput_compat.hpp"
+using ULONGLONG = unsigned long long;
+struct SDL_AudioStream;
+#endif
 
 #include "controls.hpp"
 #include "pacing.hpp"
@@ -34,7 +43,7 @@ void merge_keyboard(PadState &pad, std::uint16_t buttons);
 XINPUT_VIBRATION map_rumble(std::uint16_t rumble);
 
 // Player 1's pad. GT4_INPUT=sdl (default): SDL3 gamepad subsystem only, no SDL window; the first connected pad is
-// player 1, and hot-plug is polled. GT4_INPUT=xinput: the previous XInput path.
+// player 1, and hot-plug is polled. GT4_INPUT=xinput: the previous XInput path (Windows only; refused elsewhere).
 class ControllerInput {
 public:
   explicit ControllerInput(gt4::controls::ControlMap map = gt4::controls::default_controls(),
@@ -56,8 +65,10 @@ private:
 
   gt4::controls::ControlMap map_;
   gt4::pad::Backend backend_;
+#ifdef _WIN32
   DWORD slot_ = XUSER_MAX_COUNT;
   ULONGLONG next_scan_ = 0;
+#endif
   SDL_Gamepad *sdl_pad_ = nullptr;
   ULONGLONG sdl_next_scan_ = 0;
   ULONGLONG rumble_sent_at_ = 0;
@@ -95,9 +106,21 @@ public:
 private:
   static constexpr std::size_t max_frames_per_buffer = 512;
   static constexpr std::size_t max_buffers = 16;
+#ifndef _WIN32
+  // The part of WAVEHDR this class uses. `end` is the stream byte offset at which the device has consumed the whole
+  // buffer: the buffer is done (WHDR_DONE) once the bytes played reach it.
+  struct DeviceHeader {
+    std::uint32_t dwBufferLength = 0;
+    std::uint64_t end = 0;
+  };
+#endif
   struct Buffer {
     std::array<std::int16_t, max_frames_per_buffer * 2> samples{};
+#ifdef _WIN32
     WAVEHDR header{};
+#else
+    DeviceHeader header{};
+#endif
     bool prepared = false;
     bool queued = false;
   };
@@ -115,14 +138,21 @@ private:
       static_cast<double>(gt4::pacing::target_latency_frames),
       1.0 / static_cast<double>(gt4::pacing::guest_vblank_rate)};
   std::vector<std::int16_t> converted_;
+#ifdef _WIN32
   HWAVEOUT device_ = nullptr;
   HANDLE event_ = nullptr;
+#else
+  SDL_AudioStream *device_ = nullptr;
+  std::uint64_t written_bytes_ = 0;  // bytes put into the stream since it was opened
+#endif
   std::function<bool()> pump_messages_;
   std::uint64_t received_ = 0, submitted_ = 0, completed_ = 0, canceled_ = 0;
   std::uint64_t empty_queue_ = 0, waits_ = 0;
   std::uint64_t underruns_ = 0, overflow_frames_ = 0;
   std::size_t peak_ = 0;
   std::size_t reap();
+  bool done(const Buffer &buffer) const;
+  void write_device(Buffer &buffer);
   std::size_t queued_device_buffers() const;
   bool wait_for(Buffer *buffer);
   bool submit();

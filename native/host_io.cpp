@@ -30,6 +30,7 @@ static_assert(gt4::controls::xinput::x == XINPUT_GAMEPAD_X);
 static_assert(gt4::controls::xinput::y == XINPUT_GAMEPAD_Y);
 
 namespace {
+#ifdef _WIN32
 void check_audio(MMRESULT result, const char *operation) {
   if (result == MMSYSERR_NOERROR)
     return;
@@ -38,6 +39,7 @@ void check_audio(MMRESULT result, const char *operation) {
   throw std::runtime_error(std::string(operation) + ": " + description + " (" +
                            std::to_string(result) + ")");
 }
+#endif
 
 void press(PadState &pad, std::uint8_t bit, std::uint8_t pressure) {
   pad.buttons |= static_cast<std::uint16_t>(1u << bit);
@@ -76,6 +78,10 @@ XINPUT_VIBRATION map_rumble(std::uint16_t rumble) {
 
 ControllerInput::ControllerInput(ControlMap map, gt4::pad::Backend backend)
     : map_(std::move(map)), backend_(backend) {
+#ifndef _WIN32
+  if (backend_ == gt4::pad::Backend::xinput)
+    throw std::runtime_error("GT4_INPUT=xinput is only available on Windows; use sdl");
+#endif
   if (backend_ == gt4::pad::Backend::sdl) {
     // Gamepads only: SDL creates no window and takes no part in the game's message loop.
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
@@ -108,6 +114,7 @@ PadState ControllerInput::poll(bool focused, std::uint16_t keyboard_buttons) {
   return pad;
 }
 
+#ifdef _WIN32
 PadState ControllerInput::poll_xinput(bool focused) {
   PadState pad;
   if (!focused) {
@@ -145,6 +152,10 @@ PadState ControllerInput::poll_xinput(bool focused) {
   }
   return pad;
 }
+#else
+// The constructor refuses the XInput backend here.
+PadState ControllerInput::poll_xinput(bool) { return {}; }
+#endif
 
 // SDL_GetGamepadAxis has already normalized every mapped gamepad trigger to 0..32767,
 // including DualSense. Device names and raw joystick/HID ranges must not rescale it again.
@@ -221,6 +232,7 @@ void ControllerInput::rumble(std::uint16_t value) {
     rumble_xinput(value);
 }
 
+#ifdef _WIN32
 void ControllerInput::rumble_xinput(std::uint16_t value) {
   if (slot_ == XUSER_MAX_COUNT || motors_ == value)
     return;
@@ -237,6 +249,9 @@ void ControllerInput::rumble_xinput(std::uint16_t value) {
                              std::to_string(result));
   motors_ = value;
 }
+#else
+void ControllerInput::rumble_xinput(std::uint16_t) {}
+#endif
 
 void ControllerInput::rumble_sdl(std::uint16_t value) {
   if (!sdl_pad_)
@@ -259,6 +274,7 @@ void ControllerInput::stop() {
     motors_ = 0;
     return;
   }
+#ifdef _WIN32
   if (slot_ != XUSER_MAX_COUNT && motors_) {
     XINPUT_VIBRATION vibration{};
     const DWORD result = XInputSetState(slot_, &vibration);
@@ -267,6 +283,7 @@ void ControllerInput::stop() {
       return;
     }
   }
+#endif
   motors_ = 0;
 }
 
@@ -284,6 +301,34 @@ AudioOutput::AudioOutput(std::function<bool()> pump_messages, gt4::pacing::Mode 
   const bool paced = mode_ == gt4::pacing::Mode::paced;
   frames_per_buffer_ = paced ? paced_frames_per_buffer : blocking_frames_per_buffer;
   buffer_count_ = paced ? paced_buffer_count : blocking_buffer_count;
+#ifndef _WIN32
+  // SDL3 audio stream on the default playback device. The stream is the device queue: a buffer is done once the
+  // device has pulled all of its bytes (done()), as WHDR_DONE on Windows. The device period follows the block size.
+  SDL_SetHint(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, paced ? "256" : "512");
+  if (!SDL_InitSubSystem(SDL_INIT_AUDIO))
+    throw std::runtime_error(std::string("SDL_InitSubSystem(SDL_INIT_AUDIO) failed: ") + SDL_GetError());
+  const SDL_AudioSpec spec{SDL_AUDIO_S16LE, 2, 48000};
+  device_ = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, nullptr, nullptr);
+  if (!device_) {
+    const std::string error = SDL_GetError();
+    SDL_QuitSubSystem(SDL_INIT_AUDIO);
+    throw std::runtime_error("SDL_OpenAudioDeviceStream stereo16/48000: " + error);
+  }
+  if (!SDL_ResumeAudioStreamDevice(device_)) {
+    const std::string error = SDL_GetError();
+    SDL_DestroyAudioStream(device_);
+    device_ = nullptr;
+    SDL_QuitSubSystem(SDL_INIT_AUDIO);
+    throw std::runtime_error("SDL_ResumeAudioStreamDevice: " + error);
+  }
+  if (paced)
+    std::fprintf(stderr,
+                 "[audio] SDL3 PCM stereo16 48000 Hz, paced: %zu x %zu "
+                 "frames, 60 ms target, non-blocking, rate control +-0.5 percent\n",
+                 buffer_count_, frames_per_buffer_);
+  else
+    std::fprintf(stderr, "[audio] SDL3 PCM stereo16 48000 Hz, 4 x 512 frames\n");
+#else
   event_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
   if (!event_)
     throw std::runtime_error("Cannot create audio completion event");
@@ -327,6 +372,7 @@ AudioOutput::AudioOutput(std::function<bool()> pump_messages, gt4::pacing::Mode 
     }
     throw;
   }
+#endif
 }
 
 AudioOutput::~AudioOutput() {
@@ -343,7 +389,7 @@ std::size_t AudioOutput::reap() {
   std::size_t queued = 0;
   for (std::size_t index = 0; index < buffer_count_; ++index) {
     auto &buffer = buffers_[index];
-    if (buffer.queued && (buffer.header.dwFlags & WHDR_DONE)) {
+    if (buffer.queued && done(buffer)) {
       completed_ += buffer.header.dwBufferLength / 4;
 #if defined(GT4_PERF_PROBE) && !defined(GT4_PERF_FRAME_ONLY)
       gt4::perf::Probe::shared().audio(0, buffer.header.dwBufferLength / 4);
@@ -355,6 +401,28 @@ std::size_t AudioOutput::reap() {
   return queued;
 }
 
+#ifdef _WIN32
+bool AudioOutput::done(const Buffer &buffer) const { return (buffer.header.dwFlags & WHDR_DONE) != 0; }
+
+void AudioOutput::write_device(Buffer &buffer) {
+  check_audio(waveOutWrite(device_, &buffer.header, sizeof(WAVEHDR)), "waveOutWrite");
+}
+#else
+bool AudioOutput::done(const Buffer &buffer) const {
+  const int queued = SDL_GetAudioStreamQueued(device_);
+  if (queued < 0)
+    throw std::runtime_error(std::string("SDL_GetAudioStreamQueued: ") + SDL_GetError());
+  return written_bytes_ - static_cast<std::uint64_t>(queued) >= buffer.header.end;
+}
+
+void AudioOutput::write_device(Buffer &buffer) {
+  if (!SDL_PutAudioStreamData(device_, buffer.samples.data(), static_cast<int>(buffer.header.dwBufferLength)))
+    throw std::runtime_error(std::string("SDL_PutAudioStreamData: ") + SDL_GetError());
+  written_bytes_ += buffer.header.dwBufferLength;
+  buffer.header.end = written_bytes_;
+}
+#endif
+
 std::size_t AudioOutput::queued_device_buffers() const {
   std::size_t queued = 0;
   for (std::size_t index = 0; index < buffer_count_; ++index)
@@ -362,6 +430,26 @@ std::size_t AudioOutput::queued_device_buffers() const {
   return queued;
 }
 
+#ifndef _WIN32
+// No completion event: poll the stream every millisecond (the device period is 5-11 ms).
+bool AudioOutput::wait_for(Buffer *buffer) {
+  const ULONGLONG deadline = GetTickCount64() + 5000;
+  for (;;) {
+    const auto queued = reap();
+    if (buffer ? !buffer->queued : queued == 0)
+      return true;
+    if (pump_messages_ && !pump_messages_())
+      return false;
+    if (GetTickCount64() >= deadline)
+      throw std::runtime_error("SDL audio device stalled for five seconds");
+    ++waits_;
+    {
+      GT4_PERF_SCOPE(gt4::perf::Category::audio_wait);
+      SDL_Delay(1);
+    }
+  }
+}
+#else
 bool AudioOutput::wait_for(Buffer *buffer) {
   const ULONGLONG deadline = GetTickCount64() + 5000;
   for (;;) {
@@ -386,6 +474,7 @@ bool AudioOutput::wait_for(Buffer *buffer) {
       throw std::runtime_error("Waiting for audio completion failed");
   }
 }
+#endif
 
 bool AudioOutput::submit() {
   if (!pending_frames_)
@@ -402,8 +491,7 @@ bool AudioOutput::submit() {
   }
   std::copy_n(pending_.data(), pending_frames_ * 2, buffer.samples.data());
   buffer.header.dwBufferLength = static_cast<DWORD>(pending_frames_ * 4);
-  check_audio(waveOutWrite(device_, &buffer.header, sizeof(WAVEHDR)),
-              "waveOutWrite");
+  write_device(buffer);
   buffer.queued = true;
   submitted_ += pending_frames_;
   peak_ = std::max(peak_, queued + 1);
@@ -417,8 +505,7 @@ void AudioOutput::submit_paced_block() {
   // Callers check that at least one full block is in the ring.
   ring_.read(buffer.samples.data(), frames_per_buffer_);
   buffer.header.dwBufferLength = static_cast<DWORD>(frames_per_buffer_ * 4);
-  check_audio(waveOutWrite(device_, &buffer.header, sizeof(WAVEHDR)),
-              "waveOutWrite");
+  write_device(buffer);
   buffer.queued = true;
   submitted_ += frames_per_buffer_;
   peak_ = std::max(peak_, queued_device_buffers());
@@ -488,21 +575,33 @@ void AudioOutput::close(bool drain) {
     if (drain && submit())
       wait_for(nullptr);
     reap();
+#ifdef _WIN32
     check_audio(waveOutReset(device_), "waveOutReset");
+#else
+    if (!SDL_ClearAudioStream(device_))
+      throw std::runtime_error(std::string("SDL_ClearAudioStream: ") + SDL_GetError());
+#endif
     for (std::size_t index = 0; index < buffer_count_; ++index) {
       auto &buffer = buffers_[index];
       if (buffer.queued) {
         canceled_ += buffer.header.dwBufferLength / 4;
         buffer.queued = false;
       }
+#ifdef _WIN32
       if (buffer.prepared) {
         check_audio(
             waveOutUnprepareHeader(device_, &buffer.header, sizeof(WAVEHDR)),
             "waveOutUnprepareHeader");
         buffer.prepared = false;
       }
+#endif
     }
+#ifdef _WIN32
     check_audio(waveOutClose(device_), "waveOutClose");
+#else
+    SDL_DestroyAudioStream(device_);
+    SDL_QuitSubSystem(SDL_INIT_AUDIO);
+#endif
     device_ = nullptr;
     std::fprintf(
         stderr,
@@ -522,8 +621,10 @@ void AudioOutput::close(bool drain) {
                    static_cast<unsigned long long>(overflow_frames_),
                    ring_.size(), resampler_.ratio());
   }
+#ifdef _WIN32
   if (event_) {
     CloseHandle(event_);
     event_ = nullptr;
   }
+#endif
 }

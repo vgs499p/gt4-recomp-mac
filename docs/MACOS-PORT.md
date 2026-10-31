@@ -29,7 +29,7 @@ On Apple platforms the root `CMakeLists.txt` hands off to `ports/macos/CMakeList
 
 ### Milestone 1 detail
 
-Ported and passing (`ctest`, 26 tests):
+Ported and passing (`ctest`, 27 tests):
 
 - Pure host libraries: pacing, quickfix (window mode, race display, widescreen, cursor, aspect), Vulkan extension
   selection, memory card store, license guard, MTVU measure/journal/runtime, pad mapping, shape observer/capture.
@@ -50,12 +50,16 @@ Ported and passing (`ctest`, 26 tests):
   Windows:** there is no kill-on-close job, so a GS process whose game is killed (SIGKILL) is not ended by the system;
   the GS process must watch its `--parent` pid (`gs_stream_record` does, through the session peer checks). The
   `native_gs_stream_client` control checks this difference instead of the job.
+- `host_io.cpp`: gamepads through the SDL3 backend (already the default; `GT4_INPUT=xinput` is refused, and
+  `native/xinput_compat.hpp` gives the mapping API its XInput-shaped types). Audio is an SDL3 audio stream on the
+  default output device, stereo 16-bit 48 kHz; a buffer counts as done once the device has pulled all of its bytes,
+  as `WHDR_DONE` on Windows, so the blocking and paced paths and their rate control are unchanged. Measured on this
+  port's control: 3 s of paced audio at 60 Hz, 0 underruns, worst push 0.023 ms, ratio 1.0012.
 - `native/posix_compat.hpp`: `fopen_s`, `tmpfile_s`, `_putenv_s`, `GetEnvironmentVariableA`, `GetCurrentProcessId`,
   `GetTickCount64` with Windows return conventions, for code shared with Windows.
 
 Remaining for milestone 1:
 
-- `host_io.cpp`: WinMM audio, XInput and keyboard to SDL3 audio, gamepad and keyboard.
 - `achievements_http.cpp` (WinHTTP) and `achievements_overlay.cpp` (GDI+).
 - `native_vulkan.cpp`: Vulkan loader and Win32 surface to MoltenVK and a Metal-layer surface (SDL3 window).
 - `window.cpp`: Win32 window, VBlank hook and F-keys to SDL3.

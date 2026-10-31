@@ -114,3 +114,12 @@ gt4_fixture(native_gs_stream_client gs_stream_client_fixture
     SOURCES "${GT4_NATIVE}/gs_stream/gs_stream_client_fixture.cpp" LINK gt4_gs_stream_client
     ARGS $<TARGET_FILE:gs_stream_record> "${CMAKE_BINARY_DIR}/gs-stream-client-scratch")
 set_tests_properties(native_gs_stream_client PROPERTIES RUN_SERIAL TRUE TIMEOUT 300)
+
+# Host audio and input (host_io.cpp): SDL3 gamepads and an SDL3 audio stream on macOS. The control plays silence on
+# the default output device for about five seconds.
+add_library(native_host_io STATIC "${GT4_NATIVE}/host_io.cpp" "${GT4_NATIVE}/controls.cpp")
+target_link_libraries(native_host_io PUBLIC gt4_pad_mapping gt4_pacing gt4_frame_clock SDL3::SDL3)
+target_include_directories(native_host_io PUBLIC "${GT4_NATIVE}")
+target_compile_options(native_host_io PRIVATE ${GT4_WARNINGS})
+gt4_fixture(native_audio_input host_io_fixture SOURCES "${GT4_NATIVE}/host_io_fixture.cpp" LINK native_host_io)
+set_tests_properties(native_audio_input PROPERTIES RUN_SERIAL TRUE)

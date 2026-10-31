@@ -79,8 +79,10 @@ void check_standardized_sdl_triggers() {
 } // namespace
 
 int main() {
+#ifdef _WIN32
   // A missing SDL3.dll must fail the test, not open a system error dialog.
   SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+#endif
   try {
     check_standardized_sdl_triggers();
     const WORD buttons[] = {XINPUT_GAMEPAD_BACK,
@@ -238,7 +240,7 @@ int main() {
       rejected = true;
     }
     require(rejected, "closed sink refuses new samples");
-    std::fprintf(stderr, "PASS: real Windows audio completion, ring wrap, "
+    std::fprintf(stderr, "PASS: real audio device completion, ring wrap, "
                          "partial drain and cancel\n");
     // Paced mode on the real device: three seconds at 60 Hz, one 800-frame
     // block per guest frame. Pushes never wait; the queue stays bounded; the
