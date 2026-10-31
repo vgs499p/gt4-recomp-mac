@@ -220,3 +220,11 @@ set_tests_properties(native_vulkan_async_stress_async PROPERTIES ENVIRONMENT "GT
 set_tests_properties(native_vulkan_async_stress_sync PROPERTIES ENVIRONMENT "GT4_GS_SYNC=1")
 set_tests_properties(native_vulkan_async_stress_compare PROPERTIES DEPENDS
     "native_vulkan_async_stress_async;native_vulkan_async_stress_sync")
+
+# The game window (window_sdl.cpp, the SDL3 counterpart of window.cpp). It links only into the game executable, which
+# needs the arm64 EE library (milestone 2); until then it is compiled here so it stays in step with the runtime API.
+add_library(gt4_window STATIC "${GT4_NATIVE}/window_sdl.cpp")
+target_link_libraries(gt4_window PUBLIC ps2runtime_vulkan native_host_io gt4_achievements gt4_gs_stream_client)
+target_compile_definitions(gt4_window PRIVATE GT4_GS_STREAM_CLIENT GT4_PERF_PROBE GT4_MTVU_MEASURE)
+target_link_libraries(gt4_window PUBLIC gt4_perf_probe gt4_mtvu_measure)
+target_compile_options(gt4_window PRIVATE ${GT4_WARNINGS})

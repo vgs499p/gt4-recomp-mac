@@ -41,7 +41,7 @@ macOS writes LF; that is the only difference).
 
 | # | Milestone | State |
 |---|---|---|
-| 1 | Host runtime and its controls build and pass on macOS (no game data needed) | In progress (window left) |
+| 1 | Host runtime and its controls build and pass on macOS (no game data needed) | Done (35 tests) |
 | 2 | EE game library regenerated for arm64 from the owner's ISO (`tools/ee_producer`) | Not started |
 | 3 | GS renderer process (`gt4recomp-gs`, PCSX2 fork) built for macOS | Not started |
 | 4 | Launcher (Tauri) platform crate and `.app` packaging | Not started |
@@ -91,10 +91,19 @@ Ported and passing (`ctest`, 35 tests):
   reference over the whole 4 MiB VRAM; Metal swapchain repeat, zero-size and resize), its `GT4_GS_SYNC=1` and forced
   baseline variants, and the async/sync stress with byte-identical VRAM all pass. The fast path is used: swapchain
   maintenance 1 (KHR) with present fences.
+- `window_sdl.cpp`: the SDL3 counterpart of `window.cpp`, function for function: an SDL window with a Metal layer and
+  high pixel density (sizes in pixels), SDL events for close, F7/F8/F9, F11 and Option+Return fullscreen (desktop
+  fullscreen without a separate Space), focus and resize; keyboard bindings keep their Windows virtual-key codes and
+  are read through SDL scancodes (letters and digits follow the keyboard layout); `GT4_MONITOR` names an SDL display;
+  the memory card lock is `flock`. It links only into the game executable (milestone 2), so `gt4_window` compiles it
+  with the GS stream client, perf probe and MTVU measure hooks on. A throwaway smoke run (open_window and run_window
+  with 120 empty VBlanks) opened a 960x540-point window with a 1920x1080 Metal swapchain, paced 60 Hz VBlanks, opened
+  audio and closed cleanly.
 - `native/posix_compat.hpp`: `fopen_s`, `tmpfile_s`, `_putenv_s`, `GetEnvironmentVariableA`, `GetCurrentProcessId`,
   `GetTickCount64` with Windows return conventions, for code shared with Windows.
 
-Remaining for milestone 1:
+Next (milestone 2): the arm64 EE library from the owner's disc (`tools/ee_producer`), the game executable
+(`gt4vulkan`: the derived `main.cpp`, `window_sdl.cpp`, the runtime and the library), and an end-to-end boot.
 
 - `window.cpp`: Win32 window, VBlank hook and F-keys to SDL3.
 
