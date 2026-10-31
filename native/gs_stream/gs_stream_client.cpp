@@ -95,6 +95,8 @@ std::uint32_t g_cursor_hide_delay_ms = 3000;
 // TASK-080: display aspect wanted by the game (set_display_aspect_mode), posted after a VSYNC to a 1.3 consumer.
 // Low 32 bits: the mode; high 32 bits: the fill target aspect x 1e6 (0 = the whole window; P2, slice217).
 std::atomic<std::uint64_t> g_display_aspect_wanted{0};
+// macOS: the context id of the GS process picture layer (WINDOW restored event, reserved2); see presentation_id().
+std::atomic<std::uint64_t> g_presentation_id{0};
 
 #ifdef _WIN32
 // CPU time of the calling thread in microseconds (UINT64_MAX when unavailable).
@@ -796,7 +798,12 @@ class Client {
       } else if (type == RecordType::exiting) {
         std::fprintf(stderr, "[gs-ipc] GS process is exiting\n");
       } else if (type == RecordType::window) {
-        std::fprintf(stderr, "[gs-ipc] GS window event\n");
+        proto::WindowPayload payload{};
+        std::memcpy(&payload, event.payload, std::min<std::size_t>(event.header->payload_bytes, sizeof payload));
+        std::fprintf(stderr, "[gs-ipc] GS window event: state %u, picture layer %llu\n", payload.state,
+                     static_cast<unsigned long long>(payload.reserved2));
+        if (payload.state == static_cast<std::uint32_t>(proto::WindowState::restored) && payload.reserved2)
+          g_presentation_id.store(payload.reserved2);
       }
       events.release(event);
     }
@@ -1251,6 +1258,8 @@ bool attach_window(std::uint64_t window, std::uint32_t width, std::uint32_t heig
   c->attach(window, width, height);
   return true;
 }
+
+std::uint64_t presentation_id() { return g_presentation_id.load(); }
 
 void resize_window(std::uint32_t width, std::uint32_t height) {
   Client *c = client();

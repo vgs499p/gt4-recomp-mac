@@ -25,6 +25,7 @@
 #include "achievements.hpp"
 #ifdef GT4_GS_STREAM_CLIENT
 #include "gs_stream/gs_stream_client.hpp"
+#include "gs_stream/gs_layer_host_mac.hpp"
 #endif
 #ifdef GT4_MTVU_MEASURE
 #include "mtvu_measure.hpp"
@@ -358,6 +359,12 @@ void on_vblank() {
   GT4_PERF_SCOPE(gt4::perf::Category::host_vblank);
   if (!pump_messages())
     return;
+#ifdef GT4_GS_STREAM_CLIENT
+  // GT4_RENDERER=pcsx2: show the GS process picture layer once it has answered attach_window (gs_layer_host_mac.mm).
+  if (gt4::gs_stream::stream_renderer())
+    if (const std::uint64_t picture = gt4::gs_stream::presentation_id())
+      gt4::gs_stream::host_presentation(game_window, picture);
+#endif
   update_cursor();
   if (force_480p_enabled)
     gt4::display::force_race_480p_at_vblank(ps2::g_ram, ps2::kRamSize, force_480p_state);

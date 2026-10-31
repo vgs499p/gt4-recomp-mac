@@ -176,3 +176,15 @@ Open design points:
   (CONTROL attach_window carries the HWND). macOS has no cross-process child windows; candidates are a GS-owned window
   kept on top of the game window, or an IOSurface / `CAMetalLayer` shared through a Mach port. `attach_window` sends the
   game's `SDL_Window` pointer as a placeholder until this is decided.
+
+### Milestone 3 progress (in progress, not yet run end to end)
+
+- `gt4recomp-gs` (tag `gt4gs-v1.2.1`) builds for arm64 macOS with the Metal renderer (`USE_VULKAN=OFF`, Qt off,
+  system FFmpeg ignored) in a private clone on a local branch `gt4gs/macos` (not pushed). Pinned plutovg 1.3.2,
+  plutosvg 0.0.7 and rapidyaml 0.12.1 are built from PCSX2's own hashes; the rest comes from Homebrew. The fork's
+  `GT4GS_ONLY` (JIT-free) mode is x86-64 only, so this build is the ordinary core; the GS process never runs game code.
+- Presentation: gt4-gs makes its Metal layer the root of a remote Core Animation context and returns the context id in
+  the WINDOW restored event (`WindowPayload.reserved2`, zero on Windows); the game hosts it with a `CALayerHost` over
+  its window (`native/gs_stream/gs_layer_host_mac.mm`). The vendored stream transport now carries the POSIX IPC.
+- Not done: package `resources/` next to `gs/gt4-gs`, the first live run with `GT4_RENDERER=pcsx2`, measurements,
+  pushing the fork branch (needs a fork under the owner's account).

@@ -101,7 +101,10 @@ set_tests_properties(native_gs_stream_ipc PROPERTIES RUN_SERIAL TRUE TIMEOUT 300
 # GS stream client (game side) and its control; gs_stream_record is the test consumer it launches. The client shows
 # the player's dialogs with SDL3 message boxes (Homebrew sdl3 3.4.18, the version native/CMakeLists.txt pins).
 find_package(SDL3 3.4.18 REQUIRED CONFIG)
-add_library(gt4_gs_stream_client STATIC "${GT4_NATIVE}/gs_stream/gs_stream_client.cpp")
+add_library(gt4_gs_stream_client STATIC "${GT4_NATIVE}/gs_stream/gs_stream_client.cpp"
+    "${GT4_NATIVE}/gs_stream/gs_layer_host_mac.mm")
+set_source_files_properties("${GT4_NATIVE}/gs_stream/gs_layer_host_mac.mm" PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+target_link_libraries(gt4_gs_stream_client PUBLIC "-framework AppKit" "-framework QuartzCore")
 target_link_libraries(gt4_gs_stream_client PUBLIC gt4_gs_stream gt4_perf_probe gt4_install_paths gt4_quickfix
     SDL3::SDL3)
 target_include_directories(gt4_gs_stream_client PUBLIC "${GT4_NATIVE}")

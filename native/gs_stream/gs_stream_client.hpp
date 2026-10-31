@@ -86,6 +86,10 @@ void on_set_gs_crt(std::uint32_t interlace, std::uint32_t mode, std::uint32_t fi
 // Window: the GS process renders into a child of this window (CONTROL attach_window / resize). On macOS `window` is
 // the game's SDL_Window pointer.
 bool attach_window(std::uint64_t window, std::uint32_t width, std::uint32_t height);
+// macOS: the GS process cannot own a child of this window, so it shares its picture as a remote Core Animation layer
+// and returns the layer's context id in the WINDOW restored event (WindowPayload.reserved2) that answers
+// attach_window. 0 until then (and always 0 on Windows). The window shows it with host_presentation (main thread).
+std::uint64_t presentation_id();
 // TASK-060 (protocol 1.2): the mouse cursor policy the game window uses (GT4_CURSOR_AUTOHIDE, native/cursor_autohide.hpp).
 // Call before attach_window; attach_window then sends CONTROL cursor to a 1.2 consumer, so the GS child window hides the
 // cursor over the picture with the same rule. Default: auto-hide on, 3000 ms.
