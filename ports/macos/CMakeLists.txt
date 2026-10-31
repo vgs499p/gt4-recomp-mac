@@ -228,3 +228,24 @@ target_link_libraries(gt4_window PUBLIC ps2runtime_vulkan native_host_io gt4_ach
 target_compile_definitions(gt4_window PRIVATE GT4_GS_STREAM_CLIENT GT4_PERF_PROBE GT4_MTVU_MEASURE)
 target_link_libraries(gt4_window PUBLIC gt4_perf_probe gt4_mtvu_measure)
 target_compile_options(gt4_window PRIVATE ${GT4_WARNINGS})
+
+# Milestone 2: the EE game library and the game executable. The library is compiled from the owner's disc: the
+# donor translator, built for macOS, regenerates the 326 units and registry from the ELF that
+# scripts/ee_producer.py reconstructs (see docs/MACOS-PORT.md). The generated sources must equal the frozen Windows
+# inventory (external-recomp-references.json, `generated`); without them the game targets are skipped.
+set(GT4_MACOS_EE_GENERATED "${CMAKE_SOURCE_DIR}/private/macos-ee-producer/generated" CACHE PATH
+    "Translator output from the owner's disc (generated/table.cpp, units.hpp, unit_*.cpp)")
+if(NOT EXISTS "${GT4_MACOS_EE_GENERATED}/table.cpp" OR NOT EXISTS "${GT4_MACOS_EE_GENERATED}/units.hpp")
+    message(STATUS "macOS port: the game (ps2game, gt4vulkan) is skipped; generate the EE library from your disc first")
+    return()
+endif()
+file(GLOB macos_generated_sources CONFIGURE_DEPENDS "${GT4_MACOS_EE_GENERATED}/*.cpp")
+add_library(ps2game STATIC ${macos_generated_sources})
+target_include_directories(ps2game PRIVATE "${GT4_MACOS_EE_GENERATED}" "${GT4_DONOR}/runtime/include")
+target_compile_options(ps2game PRIVATE -Wno-unused-label -Wno-unused-variable -Wno-unused-but-set-variable)
+
+add_executable(gt4vulkan "${GT4_MACOS_PORT_DIR}/main.cpp")
+target_compile_definitions(gt4vulkan PRIVATE PS2_WINDOW)
+target_link_libraries(gt4vulkan PRIVATE ps2game gt4_window)
+# The pinned main.cpp calls _putenv_s; the POSIX shims are force-included so the derived source stays byte-identical.
+target_compile_options(gt4vulkan PRIVATE -include "${GT4_NATIVE}/posix_compat.hpp")
