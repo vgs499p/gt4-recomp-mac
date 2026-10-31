@@ -32,7 +32,7 @@ bool parse_force_baseline(const char *value) {
 
 InstanceChoice select_instance_extensions(const std::vector<std::string> &available, bool force_baseline) {
   InstanceChoice choice;
-  for (const char *required : {"VK_KHR_surface", "VK_KHR_win32_surface"}) {
+  for (const char *required : {"VK_KHR_surface", kPlatformSurfaceExtension}) {
     if (!has(available, required))
       throw std::runtime_error(std::string("Vulkan driver lacks the required instance extension ") + required +
                                "; update the graphics driver");

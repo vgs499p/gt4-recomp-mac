@@ -1,6 +1,12 @@
 #include "native_vulkan.hpp"
 #include "perf_probe.hpp"
 
+#ifndef _WIN32
+#include <SDL3/SDL_error.h>
+#include <SDL3/SDL_metal.h>
+#include <dlfcn.h>
+#endif
+
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -113,7 +119,7 @@ namespace {
   X(vkCmdBindPipeline) \
   X(vkCmdBindDescriptorSets) \
   X(vkCmdDispatch) \
-  X(vkCreateWin32SurfaceKHR) \
+  PLATFORM_SURFACE_FUNCTION(X) \
   X(vkGetPhysicalDeviceSurfaceSupportKHR) \
   X(vkGetPhysicalDeviceSurfaceFormatsKHR) \
   X(vkGetPhysicalDeviceSurfacePresentModesKHR) \
@@ -154,6 +160,14 @@ namespace {
   X(vkWaitSemaphores) \
   X(vkGetSemaphoreCounterValue)
 // clang-format on
+
+#ifdef _WIN32
+#define PLATFORM_SURFACE_FUNCTION(X) X(vkCreateWin32SurfaceKHR)
+constexpr const char *kSurfaceName = "Win32";
+#else
+#define PLATFORM_SURFACE_FUNCTION(X) X(vkCreateMetalSurfaceEXT)
+constexpr const char *kSurfaceName = "Metal";
+#endif
 
 #define DECLARE_FUNCTION(name) PFN_##name name = nullptr;
 VULKAN_FUNCTIONS(DECLARE_FUNCTION)
@@ -227,8 +241,15 @@ Context::~Context() {
     vkDestroySurfaceKHR(instance_, surface_, nullptr);
   if (instance_ && vkDestroyInstance)
     vkDestroyInstance(instance_, nullptr);
+#ifdef _WIN32
   if (loader_)
     FreeLibrary(loader_);
+#else
+  if (metal_view_)
+    SDL_Metal_DestroyView(static_cast<SDL_MetalView>(metal_view_));
+  if (loader_)
+    dlclose(loader_);
+#endif
 }
 
 void Context::initialize(const std::filesystem::path &build_time_shaders) {
@@ -254,12 +275,27 @@ void Context::initialize(const std::filesystem::path &build_time_shaders) {
     else if (std::strcmp(sync, "0") != 0)
       throw std::runtime_error("GT4_GS_SYNC must be 0 or 1");
   }
+#ifdef _WIN32
   loader_ =
       LoadLibraryExW(L"vulkan-1.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
   if (!loader_)
     throw std::runtime_error("Vulkan loader unavailable in System32");
   const auto get_instance = reinterpret_cast<PFN_vkGetInstanceProcAddr>(
       GetProcAddress(loader_, "vkGetInstanceProcAddr"));
+#else
+  // The Vulkan loader bundled in the app (Contents/Frameworks), then the Homebrew and /usr/local installs; the loader
+  // finds the MoltenVK driver through its ICD manifest.
+  for (const char *candidate : {"@executable_path/../Frameworks/libvulkan.1.dylib", "libvulkan.1.dylib",
+                                "/opt/homebrew/lib/libvulkan.1.dylib", "/usr/local/lib/libvulkan.1.dylib"}) {
+    loader_ = dlopen(candidate, RTLD_NOW | RTLD_LOCAL);
+    if (loader_)
+      break;
+  }
+  if (!loader_)
+    throw std::runtime_error("Vulkan loader (libvulkan.1.dylib) unavailable; install vulkan-loader and molten-vk");
+  const auto get_instance = reinterpret_cast<PFN_vkGetInstanceProcAddr>(
+      dlsym(loader_, "vkGetInstanceProcAddr"));
+#endif
   if (!get_instance)
     throw std::runtime_error("Vulkan loader lacks vkGetInstanceProcAddr");
   vkCreateInstance = reinterpret_cast<PFN_vkCreateInstance>(
@@ -301,6 +337,14 @@ void Context::initialize(const std::filesystem::path &build_time_shaders) {
     extensions.push_back(name.c_str());
   VkInstanceCreateInfo instance_info{};
   instance_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+#ifndef _WIN32
+  // MoltenVK is a portability driver: the loader lists it only with portability enumeration.
+  if (std::find(available_instance.begin(), available_instance.end(),
+                VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME) != available_instance.end()) {
+    extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+    instance_info.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+  }
+#endif
   instance_info.pApplicationInfo = &application;
   instance_info.enabledExtensionCount =
       static_cast<std::uint32_t>(extensions.size());
@@ -418,6 +462,12 @@ void Context::initialize(const std::filesystem::path &build_time_shaders) {
   std::vector<const char *> device_extensions;
   for (const auto &name : device_choice.extensions)
     device_extensions.push_back(name.c_str());
+#ifndef _WIN32
+  // A portability-subset device (MoltenVK) must enable the extension.
+  if (std::find(available_device.begin(), available_device.end(), "VK_KHR_portability_subset") !=
+      available_device.end())
+    device_extensions.push_back("VK_KHR_portability_subset");
+#endif
   // Enable exactly the features that were queried: timeline semaphores (core
   // 1.2) and, on the fast path, swapchainMaintenance1.
   VkPhysicalDeviceTimelineSemaphoreFeatures timeline_enable{};
@@ -852,23 +902,36 @@ void Context::wait_idle() {
 void Context::attach_window(HWND window, std::uint32_t width,
                             std::uint32_t height) {
   if (!window || window_)
-    throw std::runtime_error("Invalid or already attached Win32 window");
+    throw std::runtime_error(std::string("Invalid or already attached ") + kSurfaceName + " window");
   window_ = window;
   window_width_ = width;
   window_height_ = height;
+#ifdef _WIN32
   VkWin32SurfaceCreateInfoKHR info{};
   info.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
   info.hinstance = GetModuleHandleW(nullptr);
   info.hwnd = window;
   check(vkCreateWin32SurfaceKHR(instance_, &info, nullptr, &surface_),
         "Win32 Vulkan surface");
+#else
+  // A CAMetalLayer-backed view over the SDL window's content; width and height are its size in pixels.
+  SDL_MetalView view = SDL_Metal_CreateView(window);
+  if (!view)
+    throw std::runtime_error(std::string("SDL_Metal_CreateView failed: ") + SDL_GetError());
+  metal_view_ = view;
+  VkMetalSurfaceCreateInfoEXT info{};
+  info.sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT;
+  info.pLayer = static_cast<const CAMetalLayer *>(SDL_Metal_GetLayer(view));
+  check(vkCreateMetalSurfaceEXT(instance_, &info, nullptr, &surface_),
+        "Metal Vulkan surface");
+#endif
   VkBool32 supported = VK_FALSE;
   check(vkGetPhysicalDeviceSurfaceSupportKHR(physical_, queue_family_, surface_,
                                              &supported),
         "surface support");
   if (!supported)
     throw std::runtime_error(
-        "Selected GPU queue cannot present to this Win32 surface");
+        std::string("Selected GPU queue cannot present to this ") + kSurfaceName + " surface");
   rebuild_swapchain();
 }
 
@@ -895,7 +958,7 @@ void Context::rebuild_swapchain() {
       !(capabilities.supportedCompositeAlpha &
         VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR))
     throw std::runtime_error(
-        "Win32 surface does not support opaque transfer presentation");
+        std::string(kSurfaceName) + " surface does not support opaque transfer presentation");
   std::uint32_t count = 0;
   check(vkGetPhysicalDeviceSurfaceFormatsKHR(physical_, surface_, &count,
                                              nullptr),
@@ -1007,9 +1070,9 @@ void Context::rebuild_swapchain() {
             "per-image present semaphore");
   }
   std::fprintf(stderr,
-               "[vulkan] Win32 swapchain %ux%u, format=%d, requested usage=0x%x "
+               "[vulkan] %s swapchain %ux%u, format=%d, requested usage=0x%x "
                "(surface supports 0x%x); GPU blit, no temporal field blend\n",
-               extent_.width, extent_.height, static_cast<int>(format),
+               kSurfaceName, extent_.width, extent_.height, static_cast<int>(format),
                static_cast<unsigned>(requested_usage),
                static_cast<unsigned>(capabilities.supportedUsageFlags));
 }

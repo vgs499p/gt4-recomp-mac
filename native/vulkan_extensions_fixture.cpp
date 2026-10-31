@@ -35,7 +35,7 @@ template <class F> bool throws(F &&body) {
   return false;
 }
 
-const List kBase = {"VK_KHR_surface", "VK_KHR_win32_surface"};
+const List kBase = {"VK_KHR_surface", gt4::vulkan::kPlatformSurfaceExtension};
 
 List with(List list, std::initializer_list<const char *> more) {
   for (const char *name : more)
@@ -82,7 +82,7 @@ int main() {
   }
   // Instance: missing required extensions refuse.
   expect(throws([] { select_instance_extensions({"VK_KHR_surface"}, false); }), "no win32 surface refuses");
-  expect(throws([] { select_instance_extensions({"VK_KHR_win32_surface"}, true); }), "no surface refuses");
+  expect(throws([] { select_instance_extensions({gt4::vulkan::kPlatformSurfaceExtension}, true); }), "no surface refuses");
 
   // Device.
   const List swapchain = {"VK_KHR_swapchain"};

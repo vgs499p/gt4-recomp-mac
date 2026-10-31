@@ -18,18 +18,37 @@ ctest --test-dir build/macos --output-on-failure
 On Apple platforms the root `CMakeLists.txt` hands off to `ports/macos/CMakeLists.txt`, which mirrors the targets of
 `native/CMakeLists.txt` as each one is ported. No private assets are needed for these targets.
 
+### Donor runtime and Vulkan GS backend
+
+The donor runtime, the derived port and the SPIR-V shaders are not committed (`private/`). Without them CMake skips
+these targets and prints why. They are public (MIT donor) or generated:
+
+```sh
+git clone https://github.com/snuri00/ps2-web-recomp.git private/references/ps2-web-recomp
+git -C private/references/ps2-web-recomp config core.autocrlf true   # the pins are Windows (CRLF) checkouts
+git -C private/references/ps2-web-recomp checkout 1b4808793a12c45125262fd2d5f50a9ec9f7c020
+python3 -I scripts/prepare_external_vulkan.py private/macos-port --gs-stream-hooks
+cargo build --release --locked --manifest-path tools/wgsl_spirv/Cargo.toml --target-dir build/wgsl_spirv
+build/wgsl_spirv/release/gt4-wgsl-spirv private/references/ps2-web-recomp/runtime/src/gs/gpu/gs.wgsl private/macos-shaders
+```
+
+`prepare_external_vulkan.py` checks the donor against its pins. CMake then checks the port and the nine shaders
+against `docs/inputs/slice191-gs-stream-runtime.json`: the shaders built on macOS are byte-identical to the Windows
+production shaders, and the port files are identical once their LF line endings are turned into CRLF (Python on
+macOS writes LF; that is the only difference).
+
 ## Milestones
 
 | # | Milestone | State |
 |---|---|---|
-| 1 | Host runtime and its controls build and pass on macOS (no game data needed) | In progress |
+| 1 | Host runtime and its controls build and pass on macOS (no game data needed) | In progress (window left) |
 | 2 | EE game library regenerated for arm64 from the owner's ISO (`tools/ee_producer`) | Not started |
 | 3 | GS renderer process (`gt4recomp-gs`, PCSX2 fork) built for macOS | Not started |
 | 4 | Launcher (Tauri) platform crate and `.app` packaging | Not started |
 
 ### Milestone 1 detail
 
-Ported and passing (`ctest`, 29 tests):
+Ported and passing (`ctest`, 35 tests):
 
 - Pure host libraries: pacing, quickfix (window mode, race display, widescreen, cursor, aspect), Vulkan extension
   selection, memory card store, license guard, MTVU measure/journal/runtime, pad mapping, shape observer/capture.
@@ -61,12 +80,22 @@ Ported and passing (`ctest`, 29 tests):
   the game's NSWindow with the same layout, drawn with CoreGraphics/CoreText at the screen's backing scale; the badge
   cache is under the system temporary folder, as on Windows. The overlay drawing was checked visually; the controls
   cover configuration, memory mapping, the rcheevos session, toast animation and loopback cancellation.
+- Donor runtime (`ps2runtime_vulkan`: every donor runtime source plus the slice191 GS stream port) builds for arm64
+  with Apple Clang, unmodified.
+- `native_vulkan.cpp`: the Vulkan loader is `libvulkan.1.dylib` (app bundle `Contents/Frameworks` first, then
+  Homebrew) with MoltenVK found through its ICD manifest; the instance enables `VK_KHR_portability_enumeration` and the
+  device `VK_KHR_portability_subset` when offered; the surface is `VK_EXT_metal_surface` on an SDL Metal view of the
+  game window. The pinned port names the host window `HWND` and `SurfaceTarget::Win32`; on macOS that handle is the
+  `SDL_Window`, so the derived sources stay byte-identical to the Windows ones. Measured on an Apple M4 (MoltenVK,
+  Vulkan 1.4): `native_vulkan_pixels` (GPU raster, uploads in nine pixel formats and display reads match the CPU
+  reference over the whole 4 MiB VRAM; Metal swapchain repeat, zero-size and resize), its `GT4_GS_SYNC=1` and forced
+  baseline variants, and the async/sync stress with byte-identical VRAM all pass. The fast path is used: swapchain
+  maintenance 1 (KHR) with present fences.
 - `native/posix_compat.hpp`: `fopen_s`, `tmpfile_s`, `_putenv_s`, `GetEnvironmentVariableA`, `GetCurrentProcessId`,
   `GetTickCount64` with Windows return conventions, for code shared with Windows.
 
 Remaining for milestone 1:
 
-- `native_vulkan.cpp`: Vulkan loader and Win32 surface to MoltenVK and a Metal-layer surface (SDL3 window).
 - `window.cpp`: Win32 window, VBlank hook and F-keys to SDL3.
 
 Open design points:

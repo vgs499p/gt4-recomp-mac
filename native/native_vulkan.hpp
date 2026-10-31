@@ -1,10 +1,20 @@
 #pragma once
 
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
 #define VK_NO_PROTOTYPES
 #define VK_USE_PLATFORM_WIN32_KHR
+#else
+// macOS port: Vulkan through MoltenVK, presented on a CAMetalLayer (VK_EXT_metal_surface) of the game's SDL window.
+// The derived adapter (gpu_tail.inc, part of the pinned port) names the host window HWND and its kind
+// SurfaceTarget::Win32; on macOS that handle is the SDL_Window.
+#define VK_NO_PROTOTYPES
+#define VK_USE_PLATFORM_METAL_EXT
+struct SDL_Window;
+using HWND = SDL_Window *;
+#endif
 #include <vulkan/vulkan.h>
 
 #include "gs_submit_ring.hpp"
@@ -152,7 +162,12 @@ private:
                      VkPipelineStageFlags destination, VkAccessFlags writes,
                      VkAccessFlags reads);
 
+#ifdef _WIN32
   HMODULE loader_ = nullptr;
+#else
+  void *loader_ = nullptr;      // dlopen handle of libvulkan
+  void *metal_view_ = nullptr;  // SDL_MetalView of the attached window
+#endif
   VkInstance instance_ = VK_NULL_HANDLE;
   VkPhysicalDevice physical_ = VK_NULL_HANDLE;
   VkDevice device_ = VK_NULL_HANDLE;

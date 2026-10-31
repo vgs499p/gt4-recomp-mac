@@ -33,7 +33,15 @@ struct DeviceChoice {
 // std::invalid_argument.
 bool parse_force_baseline(const char *value);
 
-// Throws std::runtime_error naming a missing required instance extension (VK_KHR_surface, VK_KHR_win32_surface).
+// The window-system surface extension of this platform: VK_KHR_win32_surface on Windows, VK_EXT_metal_surface on
+// macOS (MoltenVK, a CAMetalLayer of the game's SDL window).
+#ifdef _WIN32
+inline constexpr const char *kPlatformSurfaceExtension = "VK_KHR_win32_surface";
+#else
+inline constexpr const char *kPlatformSurfaceExtension = "VK_EXT_metal_surface";
+#endif
+
+// Throws std::runtime_error naming a missing required instance extension (VK_KHR_surface, kPlatformSurfaceExtension).
 InstanceChoice select_instance_extensions(const std::vector<std::string> &available, bool force_baseline);
 
 // `swapchain_maintenance_feature` is VkPhysicalDeviceSwapchainMaintenance1Features::swapchainMaintenance1 as queried

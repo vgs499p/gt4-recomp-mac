@@ -150,3 +150,73 @@ gt4_fixture(native_achievements achievements_fixture SOURCES "${GT4_NATIVE}/achi
     LINK gt4_achievements)
 gt4_fixture(native_achievements_http achievements_http_fixture SOURCES "${GT4_NATIVE}/achievements_http_fixture.cpp"
     LINK gt4_achievements)
+
+# Donor runtime and the native Vulkan GS backend (MoltenVK) with the pixel and async-stress controls. Needs the MIT
+# donor checked out with CRLF line endings (the pins are Windows checkouts), the port derived from it and the SPIR-V
+# shaders (docs/MACOS-PORT.md). The port and shaders must match the slice191 pins; the port is compared with LF line
+# endings turned into CRLF, the only difference of a POSIX derivation.
+set(GT4_DONOR "${CMAKE_SOURCE_DIR}/private/references/ps2-web-recomp" CACHE PATH "MIT donor checkout (CRLF)")
+set(GT4_MACOS_PORT_DIR "${CMAKE_SOURCE_DIR}/private/macos-port" CACHE PATH "prepare_external_vulkan.py --gs-stream-hooks output")
+set(GT4_MACOS_SHADER_DIR "${CMAKE_SOURCE_DIR}/private/macos-shaders" CACHE PATH "gt4-wgsl-spirv output")
+if(NOT EXISTS "${GT4_MACOS_PORT_DIR}/gpu.cpp" OR NOT EXISTS "${GT4_MACOS_SHADER_DIR}/raster.spv" OR
+   NOT EXISTS "${GT4_DONOR}/runtime/src/memory.cpp")
+    message(STATUS "Vulkan GS backend skipped: no donor, port or shaders (docs/MACOS-PORT.md)")
+    return()
+endif()
+file(READ "${CMAKE_SOURCE_DIR}/docs/inputs/slice191-gs-stream-runtime.json" macos_pins)
+foreach(port_file IN ITEMS gpu.cpp gpu.hpp gs.cpp)
+    file(READ "${GT4_MACOS_PORT_DIR}/${port_file}" port_text)
+    string(REPLACE "\r\n" "\n" port_text "${port_text}")
+    string(REPLACE "\n" "\r\n" port_text "${port_text}")
+    string(SHA256 port_actual "${port_text}")
+    string(JSON port_expected GET "${macos_pins}" inputs PORT "${port_file}")
+    if(NOT port_actual STREQUAL port_expected)
+        message(FATAL_ERROR "${GT4_MACOS_PORT_DIR}/${port_file} differs from the slice191 pin")
+    endif()
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${GT4_MACOS_PORT_DIR}/${port_file}")
+endforeach()
+foreach(shader IN ITEMS upload copy_read copy_write load_clut display raster resolve snapshot decode)
+    file(SHA256 "${GT4_MACOS_SHADER_DIR}/${shader}.spv" shader_actual)
+    string(JSON shader_expected GET "${macos_pins}" inputs SHADERS "${shader}.spv")
+    if(NOT shader_actual STREQUAL shader_expected)
+        message(FATAL_ERROR "${GT4_MACOS_SHADER_DIR}/${shader}.spv differs from the slice191 pin")
+    endif()
+endforeach()
+find_package(VulkanHeaders CONFIG REQUIRED)
+set(macos_runtime_files)
+foreach(source IN ITEMS memory dispatch system kernel hw cop disc dmac vif vu_micro vu_jit vu_jit_web
+                        ipu/ipu gs/gif gs/queue gs/raster iop/cpu iop/kernel iop/libs iop/hw iop/spu2 iop/sio2
+                        iop/io iop/cdvd iop/sif iop/cdvdfsv)
+    list(APPEND macos_runtime_files "${GT4_DONOR}/runtime/src/${source}.cpp")
+endforeach()
+add_library(ps2runtime_vulkan STATIC ${macos_runtime_files} "${GT4_MACOS_PORT_DIR}/gs.cpp"
+    "${GT4_MACOS_PORT_DIR}/gpu.cpp" "${GT4_NATIVE}/native_vulkan.cpp")
+target_include_directories(ps2runtime_vulkan PUBLIC "${GT4_DONOR}/runtime/include" "${GT4_DONOR}/runtime/src"
+    "${GT4_DONOR}/runtime/src/gs" "${GT4_NATIVE}" "${GT4_NATIVE}/gs_stream" "${GT4_MACOS_PORT_DIR}")
+target_compile_definitions(ps2runtime_vulkan PUBLIC PS2_GPU GT4_VULKAN_SHADER_DIR="${GT4_MACOS_SHADER_DIR}")
+target_link_libraries(ps2runtime_vulkan PUBLIC Vulkan::Headers gt4_pacing gt4_quickfix gt4_install_paths
+    gt4_vulkan_extensions gt4_gs_stream_client SDL3::SDL3)
+add_executable(vulkan_fixture "${GT4_NATIVE}/fixture.cpp")
+target_link_libraries(vulkan_fixture PRIVATE ps2runtime_vulkan)
+add_executable(vulkan_async_stress "${GT4_NATIVE}/async_stress_fixture.cpp")
+target_link_libraries(vulkan_async_stress PRIVATE ps2runtime_vulkan)
+add_test(NAME native_vulkan_pixels COMMAND $<TARGET_FILE:vulkan_fixture>)
+add_test(NAME native_vulkan_pixels_sync COMMAND $<TARGET_FILE:vulkan_fixture>)
+add_test(NAME native_vulkan_pixels_baseline COMMAND $<TARGET_FILE:vulkan_fixture>)
+set_tests_properties(native_vulkan_pixels native_vulkan_pixels_sync native_vulkan_pixels_baseline PROPERTIES
+    RUN_SERIAL TRUE TIMEOUT 120 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+set_tests_properties(native_vulkan_pixels_sync PROPERTIES ENVIRONMENT "GT4_GS_SYNC=1")
+set_tests_properties(native_vulkan_pixels_baseline PROPERTIES ENVIRONMENT "GT4_VULKAN_FORCE_BASELINE=1"
+    PASS_REGULAR_EXPRESSION "presentation path: baseline [^\n]*forced by GT4_VULKAN_FORCE_BASELINE=1.*PASS: real Vulkan")
+add_test(NAME native_vulkan_async_stress_async
+    COMMAND $<TARGET_FILE:vulkan_async_stress> "${CMAKE_BINARY_DIR}/async-stress-async.bin")
+add_test(NAME native_vulkan_async_stress_sync
+    COMMAND $<TARGET_FILE:vulkan_async_stress> "${CMAKE_BINARY_DIR}/async-stress-sync.bin")
+add_test(NAME native_vulkan_async_stress_compare COMMAND ${CMAKE_COMMAND} -E compare_files
+    "${CMAKE_BINARY_DIR}/async-stress-async.bin" "${CMAKE_BINARY_DIR}/async-stress-sync.bin")
+set_tests_properties(native_vulkan_async_stress_async native_vulkan_async_stress_sync PROPERTIES
+    RUN_SERIAL TRUE TIMEOUT 600 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+set_tests_properties(native_vulkan_async_stress_async PROPERTIES ENVIRONMENT "GT4_GS_SYNC=0")
+set_tests_properties(native_vulkan_async_stress_sync PROPERTIES ENVIRONMENT "GT4_GS_SYNC=1")
+set_tests_properties(native_vulkan_async_stress_compare PROPERTIES DEPENDS
+    "native_vulkan_async_stress_async;native_vulkan_async_stress_sync")

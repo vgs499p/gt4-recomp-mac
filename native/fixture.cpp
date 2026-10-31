@@ -7,6 +7,11 @@
 #include <stdexcept>
 #include <vector>
 
+#ifndef _WIN32
+// macOS port: the presentation window is a hidden SDL window (Metal layer); the Win32 calls below map onto it.
+#include <SDL3/SDL.h>
+#endif
+
 namespace {
 using namespace ps2::gs;
 
@@ -245,9 +250,16 @@ int main() {
     if (!oversize_refused)
       throw std::runtime_error(
           "Oversized display escaped scratch capacity check");
+#ifdef _WIN32
     HWND window = CreateWindowExW(0, L"STATIC", L"Vulkan presentation fixture",
                                   WS_OVERLAPPEDWINDOW, 0, 0, 160, 120, nullptr,
                                   nullptr, GetModuleHandleW(nullptr), nullptr);
+#else
+    if (!SDL_Init(SDL_INIT_VIDEO))
+      throw std::runtime_error(std::string("SDL video: ") + SDL_GetError());
+    // 160x120 pixels: a high-density window is sized in points, so use half the size on a 2x screen.
+    HWND window = SDL_CreateWindow("Vulkan presentation fixture", 160, 120, SDL_WINDOW_METAL | SDL_WINDOW_HIDDEN);
+#endif
     if (!window)
       throw std::runtime_error("Cannot create fixture window");
     gpu::attach_surface({gpu::SurfaceTarget::Win32, nullptr,
@@ -260,7 +272,11 @@ int main() {
     gpu::resize_surface(0, 0);
     if (gpu::present(display_source))
       throw std::runtime_error("Zero-sized surface presented unexpectedly");
+#ifdef _WIN32
     SetWindowPos(window, nullptr, 0, 0, 240, 180, SWP_NOACTIVATE | SWP_NOMOVE);
+#else
+    SDL_SetWindowSize(window, 240, 180);
+#endif
     gpu::resize_surface(240, 180);
     if (!gpu::present(display_source))
       throw std::runtime_error("Restored resized surface refused presentation");
@@ -269,7 +285,9 @@ int main() {
       if (!gpu::present(source))
         throw std::runtime_error("Widescreen resolution presentation refused");
     }
+#ifdef _WIN32
     DestroyWindow(window);
+#endif
     std::fprintf(stderr,
                  "[fixture] Win32 repeat/zero-size/resize restore passed\n");
     gpu::stats();
