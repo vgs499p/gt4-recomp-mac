@@ -186,5 +186,14 @@ Open design points:
 - Presentation: gt4-gs makes its Metal layer the root of a remote Core Animation context and returns the context id in
   the WINDOW restored event (`WindowPayload.reserved2`, zero on Windows); the game hosts it with a `CALayerHost` over
   its window (`native/gs_stream/gs_layer_host_mac.mm`). The vendored stream transport now carries the POSIX IPC.
-- Not done: package `resources/` next to `gs/gt4-gs`, the first live run with `GT4_RENDERER=pcsx2`, measurements,
-  pushing the fork branch (needs a fork under the owner's account).
+- Fork changes for macOS (branch `gt4gs/macos`): the stream renderer defaults to Metal (Vulkan elsewhere); the data
+  root defaults to `~/Library/Application Support/GT4Recomp/gt4-gs` and is created with its parents; READY carries the
+  POSIX pid; `gt4gs/package-macos.sh <build> <out>` lays out `gt4-gs`, `resources/` and `resources/Metal23.metallib`
+  (compiled with `xcrun metal`), the licence files and `SOURCE.txt`. The game expects that folder at
+  `build/macos/ports/macos/gs`.
+- **First live runs** (`GT4_RENDERER=pcsx2`, Apple M4, menus and intro only, 1,200 and 1,500 frames): handshake,
+  READY (PCSX2 GS Metal x1, protocol 1.3), attach, picture layer hosted, clean shutdown with exit code 0. The GS
+  process spent 0.4-0.6 ms per frame on its GS thread and 0.5-1.6 ms of GPU time (8-10 percent); the built-in
+  renderer waited up to 12 ms per frame on the GPU in a race. Not yet checked: the picture itself on screen (the
+  agent cannot capture the screen), races, resolution scaling, and the "0 acquires" swap chain counter.
+- Not done: pushing the fork branch (needs a fork under the owner's account), owner race test.
