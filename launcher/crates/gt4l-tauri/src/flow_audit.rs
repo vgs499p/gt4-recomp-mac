@@ -258,7 +258,7 @@ fn synthetic_flow_end_to_end() {
     // program is a text file. The GSdx launch line is covered by the launch contract tests.
     let program = root.join("program");
     fs::create_dir_all(program.join("game")).unwrap();
-    fs::write(program.join("game").join("gt4vulkan.exe"), b"stand-in, never started").unwrap();
+    fs::write(program.join("game").join(gt4l_core::paths::GAME_EXECUTABLE), b"stand-in, never started").unwrap();
     let refusal = play_plan(&second, &program).unwrap_err();
     assert!(refusal.starts_with("GSdx could not run the game: GSdx is not installed yet"), "{refusal}");
     assert!(refusal.contains("log folder"), "{refusal}");
@@ -354,7 +354,7 @@ fn without_gsdx_setup_finishes_and_play_refuses_with_the_log_folder() {
     let second = launch(&dirs, &pins);
     let program = root.join("program");
     fs::create_dir_all(program.join("game")).unwrap();
-    fs::write(program.join("game").join("gt4vulkan.exe"), b"stand-in, never started").unwrap();
+    fs::write(program.join("game").join(gt4l_core::paths::GAME_EXECUTABLE), b"stand-in, never started").unwrap();
     let refusal = play_plan(&second, &program).unwrap_err();
     assert_eq!(
         refusal,
@@ -418,7 +418,7 @@ fn retroachievements_options_and_launch_environment() {
 
     let program = root.join("program");
     fs::create_dir_all(program.join("game")).unwrap();
-    fs::write(program.join("game").join("gt4vulkan.exe"), b"stand-in gt4vulkan.exe").unwrap();
+    fs::write(program.join("game").join(gt4l_core::paths::GAME_EXECUTABLE), b"stand-in gt4vulkan.exe").unwrap();
 
     let play_inputs = commands::prepare_play(&shared, &program).expect("prepare_play succeeds with stand-in binaries");
     assert!(play_inputs.extra.contains(&("GT4_RA_ENABLED".to_string(), "1".to_string())));

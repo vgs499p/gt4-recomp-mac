@@ -49,7 +49,10 @@ pub const USER_FOLDER_NAME: &str = "Gran Turismo 4";
 pub const MOVED_USER_FOLDER_NAME: &str = "Gran Turismo 4 (moved to AppData)";
 
 /// Name of the game executable inside the game folder.
+#[cfg(windows)]
 pub const GAME_EXECUTABLE: &str = "gt4vulkan.exe";
+#[cfg(not(windows))]
+pub const GAME_EXECUTABLE: &str = "gt4vulkan";
 
 /// Name of the custom texture folder (TASK-088; TASK-093: gt4-gs 1.2.1 reads the folder itself).
 pub const TEXTURES_FOLDER_NAME: &str = "Textures";
@@ -391,12 +394,37 @@ impl LayoutInputs {
             user_override: non_empty(USER_DIR_OVERRIDE_VAR),
             local_override: non_empty(LOCAL_DIR_OVERRIDE_VAR),
             documents_override: non_empty(DOCUMENTS_DIR_OVERRIDE_VAR),
-            app_data: non_empty("APPDATA").map(PathBuf::from),
-            local_app_data: non_empty("LOCALAPPDATA").map(PathBuf::from),
+            app_data: app_data_folder(),
+            local_app_data: local_app_data_folder(),
             known_documents,
             previous_data: None,
         }
     }
+}
+
+/// `%APPDATA%` on Windows; `~/Library/Application Support` on macOS, which holds both the user data and the large
+/// data there (see [`resolve_layout`]).
+#[cfg(not(target_os = "macos"))]
+fn app_data_folder() -> Option<PathBuf> {
+    std::env::var_os("APPDATA").filter(|value| !value.is_empty()).map(PathBuf::from)
+}
+
+#[cfg(target_os = "macos")]
+fn app_data_folder() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .filter(|value| !value.is_empty())
+        .map(|home| PathBuf::from(home).join("Library").join("Application Support"))
+}
+
+/// `%LOCALAPPDATA%` on Windows. macOS never had a 1.2.0 install, so it has no legacy folder.
+#[cfg(not(target_os = "macos"))]
+fn local_app_data_folder() -> Option<PathBuf> {
+    std::env::var_os("LOCALAPPDATA").filter(|value| !value.is_empty()).map(PathBuf::from)
+}
+
+#[cfg(target_os = "macos")]
+fn local_app_data_folder() -> Option<PathBuf> {
+    None
 }
 
 /// The resolved folders of this launcher run.
@@ -444,6 +472,20 @@ pub fn resolve_layout(inputs: &LayoutInputs, writable: &dyn Fn(&Path) -> bool) -
 
     let mut data = match &inputs.data_override {
         Some(value) => DataDirs::new(PathBuf::from(value)),
+        None if cfg!(target_os = "macos") => {
+            // macOS: the program folder is inside the signed app bundle, which is never written. The large data lives
+            // in `~/Library/Application Support/GT4Recomp/data`; the bundle's `Contents/Resources/data` (the renderer
+            // shipped with the app) is read beneath it.
+            let Some(app_data) = &inputs.app_data else {
+                return Err("HOME is not set and GT4RECOMP_DATA_DIR is not given".to_string());
+            };
+            let mut dirs = DataDirs::new(app_data.join(APP_FOLDER_NAME).join(DATA_FOLDER_NAME));
+            let bundled = inputs.exe_dir.join("..").join("Resources").join(DATA_FOLDER_NAME);
+            if bundled.is_dir() {
+                dirs.add_read_layer(bundled);
+            }
+            dirs
+        }
         None => {
             let installed = inputs.exe_dir.join(DATA_FOLDER_NAME);
             if writable(&installed) {
@@ -607,6 +649,25 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
+    fn on_macos_the_data_is_in_application_support_and_the_bundle_is_only_read() {
+        let base = scratch("macos-bundle");
+        let exe_dir = base.join("GT4Recomp.app").join("Contents").join("MacOS");
+        let bundled = exe_dir.join("..").join("Resources").join("data");
+        std::fs::create_dir_all(bundled.join("gs")).unwrap();
+        let support = base.join("Application Support");
+        let layout_inputs = LayoutInputs { exe_dir: exe_dir.clone(), app_data: Some(support.clone()), ..LayoutInputs::default() };
+        let layout = resolve_layout(&layout_inputs, &|_: &Path| panic!("nothing is probed on macOS")).unwrap();
+        assert_eq!(layout.data.root(), support.join("GT4Recomp").join("data"));
+        assert_eq!(layout.data.read_layers(), [bundled].as_slice());
+        assert_eq!(layout.user_root, support.join("GT4Recomp"));
+        assert_eq!(layout.legacy, LegacyLocations::default());
+        assert!(layout.notices.is_empty());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    #[cfg(not(target_os = "macos"))]
     fn the_data_folder_is_next_to_the_executable_and_user_data_is_in_roaming_appdata() {
         let base = scratch("installed");
         let exe_dir = base.join("Program Files").join("GT4Recomp");
@@ -623,6 +684,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_os = "macos"))]
     fn a_portable_copy_finds_its_data_relative_to_the_new_executable() {
         let base = scratch("portable");
         let first = base.join("C").join("GT4Recomp");
@@ -641,6 +703,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_os = "macos"))]
     fn an_empty_appdata_on_a_new_pc_still_sees_the_game_files_in_the_data_folder() {
         let base = scratch("empty-appdata");
         let exe_dir = base.join("GT4Recomp");
@@ -652,6 +715,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_os = "macos"))]
     fn a_data_folder_that_cannot_be_written_is_read_and_writes_go_to_local_appdata() {
         let base = scratch("read-only");
         let exe_dir = base.join("Program Files").join("GT4Recomp");

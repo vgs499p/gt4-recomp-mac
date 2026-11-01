@@ -45,8 +45,17 @@ pub fn checked_vulkan() -> Option<String> {
 }
 
 /// The CPU check, then the Vulkan check: the first problem's message, or `None`.
+#[cfg(not(target_os = "macos"))]
 pub fn requirements_problem() -> Option<String> {
     gt4l_core::system_check::cpu_problem(&read_cpu_features()).or_else(checked_vulkan)
+}
+
+/// macOS: nothing to check here. The macOS build is arm64 only, the app bundle requires macOS 14.4 or later
+/// (`LSMinimumSystemVersion`), and every Apple Silicon Mac has the Metal GPU that gt4-gs renders with; the game does not
+/// use Vulkan when GSdx (gt4-gs) runs it, which is the only renderer the launcher starts.
+#[cfg(target_os = "macos")]
+pub fn requirements_problem() -> Option<String> {
+    None
 }
 
 #[cfg(windows)]

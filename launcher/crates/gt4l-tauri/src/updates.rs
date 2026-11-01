@@ -92,8 +92,17 @@ fn fetch(stream: Stream) -> Result<Vec<releases::Release>, String> {
 
 /// An explicit update check includes both streams. GSdx is the only renderer (TASK-096), so every check covers it.
 /// Blocking: run it on a worker thread.
+#[cfg(not(target_os = "macos"))]
 pub fn check(dirs: &DataDirs, skipped_launcher: Option<Version>, skipped_renderer: Option<Version>) -> Check {
     check_with(dirs, skipped_launcher, skipped_renderer, true, fetch)
+}
+
+/// macOS: no update offers. The releases are Windows packages (the setup and the gt4-gs zip); the macOS app bundle
+/// carries its own renderer and is rebuilt from source (`ports/macos/package_app.py`).
+#[cfg(target_os = "macos")]
+pub fn check(dirs: &DataDirs, _skipped_launcher: Option<Version>, _skipped_renderer: Option<Version>) -> Check {
+    let renderer_installed = gs_release::installed(&renderer_root(dirs)).map(|installed| installed.version);
+    Check { offers: Vec::new(), errors: Vec::new(), renderer_installed }
 }
 
 /// The injected fetcher lets tests verify which network requests an automatic check actually makes.

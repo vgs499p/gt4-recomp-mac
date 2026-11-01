@@ -29,7 +29,8 @@
   "bundle": {
     "active": false,
     "icon": [
-      "../../assets/brand/launcher.ico"
+      "../../assets/brand/launcher.ico",
+      "../../assets/brand/launcher.png"
     ],
     "windows": {
       "webviewInstallMode": {

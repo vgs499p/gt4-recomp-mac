@@ -29,7 +29,10 @@ pub const MINIMUM_VERSION: Version = releases::RENDERER_MINIMUM;
 /// Name of the checksum list attached to each release.
 pub const CHECKSUM_ASSET: &str = releases::CHECKSUM_ASSET;
 /// The renderer program inside the package.
+#[cfg(windows)]
 pub const EXECUTABLE_NAME: &str = "gt4-gs.exe";
+#[cfg(not(windows))]
+pub const EXECUTABLE_NAME: &str = "gt4-gs";
 /// Name of the state file in the renderer root: the version in use.
 pub const CURRENT_FILE: &str = "current.txt";
 /// Largest package the launcher accepts (bytes). Protects memory on a bad or hostile response.

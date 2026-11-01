@@ -54,3 +54,10 @@ description = "Launcher icon: emblem on carbon with play badge, 10 sizes"
 size_bytes = 18602
 sha256 = "1f38f05825f5dde3ebe4ff4af96528d96d4f1f5ee04218157d227acefde3d60b"
 licence_note = "Derived."
+
+[[asset]]
+path = "launcher.png"
+description = "Launcher icon, the 256 px image of launcher.ico (macOS window and bundle icon)"
+size_bytes = 6910
+sha256 = "afe771069e4bd8b52985c67d2195fd7013ce0e123c2be9fd64f2b49a84cc6920"
+licence_note = "Derived."
