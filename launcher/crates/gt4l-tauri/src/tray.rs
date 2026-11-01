@@ -180,13 +180,18 @@ pub fn install(app: &mut App) -> tauri::Result<()> {
     let mut builder = TrayIconBuilder::with_id("gt4recomp-tray")
         .tooltip("GT4Recomp")
         .menu(&menu)
-        .show_menu_on_left_click(false)
+        // Windows: a left click shows the launcher, the menu is on the right button. macOS menu bar items open their
+        // menu on a click, so there the menu (Show launcher, Quit) is the click.
+        .show_menu_on_left_click(cfg!(target_os = "macos"))
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => handle(app, Event::ShowRequested),
             "quit" => handle(app, Event::QuitRequested),
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
+            if cfg!(target_os = "macos") {
+                return;
+            }
             if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
                 handle(tray.app_handle(), Event::ShowRequested);
             }
