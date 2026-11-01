@@ -8,7 +8,7 @@ An unofficial macOS arm64 port of [GT4Recomp](https://github.com/moesuito/gt4-st
 ![Apple Silicon](https://img.shields.io/badge/macOS-Apple%20Silicon-2ea44f?style=for-the-badge)
 ![Metal](https://img.shields.io/badge/renderer-Metal-1f6feb?style=for-the-badge)
 ![MIT](https://img.shields.io/badge/license-MIT-1f6feb?style=for-the-badge)
-![Status](https://img.shields.io/badge/status-playable%2C%20build%20from%20source-e3b341?style=for-the-badge)
+![Status](https://img.shields.io/badge/status-playable%2C%20build%20it%20yourself-e3b341?style=for-the-badge)
 
 </div>
 
@@ -27,21 +27,27 @@ PCSX2 GS renderer running on **Metal** in its own process.
 | Game library built for arm64 from your own disc | Done: the generated code is byte-identical to the Windows build's |
 | Boot, menus, races, saves to a memory card, controller and keyboard | Working |
 | PCSX2 GS renderer (Metal), shown inside the game window | Working; races run well on an Apple M4 |
-| Launcher and a double-clickable `.app` | In progress |
+| Launcher and a double-clickable `GT4Recomp.app` | Working: sets the game up from your disc image and plays it |
 
 Tested only on an **Apple M4**. Other Apple Silicon Macs should work but have not been tried.
 
 ## Known issues
 
-- **There is no download yet.** You build the game from source with your own disc image (see below).
+- **There is no ready-made app to download, and there never will be.** The app contains the game's code,
+  translated from your own disc, so it can't be shared. Everyone builds their own copy from source with their own
+  disc image (see below).
 - The built-in renderer (used without `GT4_RENDERER=pcsx2`) runs on MoltenVK. It is slower, and cars from earlier
   frames can flash during races. Use the PCSX2 renderer.
 - Frame times, higher resolutions and long sessions have not been measured on macOS yet.
 - If the game is force-quit, its renderer process may keep running in the background until it notices.
+- The launcher's setup page still says the renderer comes "from GitHub"; on macOS it is already inside the app.
+- Some launcher pages still use Windows wording (Recycle Bin, Documents, installer), and the launcher never offers
+  updates on macOS: rebuild the app to update.
 
 ## Requirements
 
-- An **Apple Silicon Mac** with **macOS 14.4 or later**.
+- An **Apple Silicon Mac** with **macOS 14.4 or later**, and about **6 GB free** (the launcher keeps a copy of
+  your disc image).
 - **Xcode command line tools**, **CMake 3.24+**, **Ninja**, **Python 3** and **Rust** (for the shader compiler).
 - Homebrew packages: `sdl3`, `molten-vk`, `vulkan-loader`, `vulkan-headers`, plus the renderer's libraries
   (see the renderer build notes).
@@ -60,7 +66,19 @@ The full recipe, with every command and the checks each step makes, is in
    VU1 and VU0 programs and the multithreaded VU1 runtime. All of them are checked against the release pins.
 4. **Renderer:** build `gt4-gs` from [vgs499p/gt4recomp-gs](https://github.com/vgs499p/gt4recomp-gs), branch
    `gt4gs/macos`, and package it with `gt4gs/package-macos.sh` into `build/macos/ports/macos/gs`.
-5. **Play:**
+5. **App:** build the launcher and put everything into one app:
+
+```sh
+cargo build --release --manifest-path launcher/Cargo.toml -p gt4l-tauri
+python3 -I ports/macos/package_app.py --out build/macos/GT4Recomp.app
+```
+
+6. **Play:** open `build/macos/GT4Recomp.app` (move it to Applications if you like), choose your disc image once,
+   then press **Play**. Your settings, saves and the copy of your disc go in `~/Library/Application Support/GT4Recomp`.
+
+The app is signed only for your Mac. It has the game code from your disc inside, so keep it to yourself.
+
+You can also start the game without the launcher:
 
 ```sh
 GT4_RENDERER=pcsx2 build/macos/ports/macos/gt4vulkan private/macos-ee-producer/SCUS_973.28.elf \

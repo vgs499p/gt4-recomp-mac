@@ -44,7 +44,7 @@ macOS writes LF; that is the only difference).
 | 1 | Host runtime and its controls build and pass on macOS (no game data needed) | Done (35 tests) |
 | 2 | EE game library regenerated for arm64 from the owner's ISO, game executable, first boot | Done (boots to the first menu) |
 | 3 | GS renderer process (`gt4recomp-gs`, PCSX2 fork) built for macOS | Done (Metal; owner race test passed) |
-| 4 | Launcher (Tauri) platform crate and `.app` packaging | Not started |
+| 4 | Launcher (Tauri) platform crate and `.app` packaging | Working (`ports/macos/package_app.py`); see milestone 4 |
 
 ### Milestone 1 detail
 
@@ -201,3 +201,26 @@ Open design points:
 - **Owner race test** (`GT4_RENDERER=pcsx2`, Apple M4, windowed): "runs well". Not yet measured: frame times in a
   race, resolution scaling, whether the previous-frame car flashes of the built-in renderer are gone, and the
   "0 acquires" counter (Vulkan only; meaningless on Metal).
+
+### Milestone 4 progress (working)
+
+- The launcher workspace builds on arm64 macOS. Off Windows the program names have no `.exe`; the requirement check
+  (SSE4.1 and Vulkan) is skipped on macOS, where the build is arm64 only and gt4-gs renders with Metal; update offers
+  are off (the releases are Windows packages).
+- Folders on macOS: user data in `~/Library/Application Support/GT4Recomp`, large data (disc copy, prepared files,
+  sessions, logs, renderer caches) in its `data` subfolder. The app bundle is never written: its
+  `Contents/Resources/data` holds gt4-gs as an installed version (`gs/current.txt`, `gs/1.2.1/sha256.txt`) and is read
+  beneath the data folder. There are no 1.2.0 legacy folders on macOS.
+- `ports/macos/package_app.py` lays out `GT4Recomp.app` (launcher, `MacOS/game/gt4vulkan`, the gt4-gs folder), copies
+  every non-system library into `Contents/Frameworks` with `@rpath` references, signs ad hoc and records the renderer
+  hash after signing. The bundle holds code translated from the owner's disc: it is for that Mac only.
+- gt4-gs on macOS maps a Vulkan or D3D renderer request (the launcher writes `Renderer = 14`) to Metal (fork commit
+  "run a Vulkan/D3D renderer request on Metal"); before that the GS failed to open from the launcher.
+- The menu bar item opens its menu (Show launcher, Quit) on a click on macOS; on Windows a left click still shows
+  the launcher.
+- **Checked:** setup from the owner's ISO in the app; the bundled game with the launcher's session INI starts gt4-gs
+  on Metal (3x) and shows the picture in the game window. **Not yet checked:** Play pressed in the app after the fix,
+  the menu bar menu, saves and replays pages, controller navigation in the launcher.
+- Known failures on macOS (Windows path rules, already failing before the port): `gt4l-core`
+  `stored_paths_inside_the_install_folder_become_relative`, `system_check` `the_required_list_matches_the_game_source`,
+  `gt4l-tauri` `settings_store_no_absolute_path_inside_the_install_folder`.
