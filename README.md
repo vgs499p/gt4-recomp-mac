@@ -33,9 +33,8 @@ Tested only on an **Apple M4**. Other Apple Silicon Macs should work but have no
 
 ## Known issues
 
-- **There is no ready-made app to download, and there never will be.** The app contains the game's code,
-  translated from your own disc, so it can't be shared. Everyone builds their own copy from source with their own
-  disc image (see below).
+- **There is no ready-made Mac app to download yet.** For now you build it from source with your own disc image
+  (see below). No release will ever include the disc itself: you always bring your own copy.
 - The built-in renderer (used without `GT4_RENDERER=pcsx2`) runs on MoltenVK. It is slower, and cars from earlier
   frames can flash during races. Use the PCSX2 renderer.
 - Frame times, higher resolutions and long sessions have not been measured on macOS yet.
@@ -76,7 +75,7 @@ python3 -I ports/macos/package_app.py --out build/macos/GT4Recomp.app
 6. **Play:** open `build/macos/GT4Recomp.app` (move it to Applications if you like), choose your disc image once,
    then press **Play**. Your settings, saves and the copy of your disc go in `~/Library/Application Support/GT4Recomp`.
 
-The app is signed only for your Mac. It has the game code from your disc inside, so keep it to yourself.
+The app you build is signed only for your Mac (ad hoc), so other Macs will refuse to open it.
 
 You can also start the game without the launcher:
 
