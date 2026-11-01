@@ -175,10 +175,10 @@ Open design points:
 - **GS process presentation (milestone 3).** Decided: a remote Core Animation context hosted with `CALayerHost`
   (see below). `attach_window` still sends the game's `SDL_Window` pointer, which gt4-gs only logs.
 
-### Milestone 3 progress (runs end to end; fork branch not published)
+### Milestone 3 progress (runs end to end)
 
 - `gt4recomp-gs` (tag `gt4gs-v1.2.1`) builds for arm64 macOS with the Metal renderer (`USE_VULKAN=OFF`, Qt off,
-  system FFmpeg ignored) in a private clone on a local branch `gt4gs/macos` (not pushed). Pinned plutovg 1.3.2,
+  system FFmpeg ignored) on branch `gt4gs/macos` of https://github.com/vgs499p/gt4recomp-gs (a fork of `moesuito/gt4recomp-gs`). Pinned plutovg 1.3.2,
   plutosvg 0.0.7 and rapidyaml 0.12.1 are built from PCSX2's own hashes; the rest comes from Homebrew. The fork's
   `GT4GS_ONLY` (JIT-free) mode is x86-64 only, so this build is the ordinary core; the GS process never runs game code.
 - Presentation: gt4-gs makes its Metal layer the root of a remote Core Animation context and returns the context id in
@@ -201,4 +201,3 @@ Open design points:
 - **Owner race test** (`GT4_RENDERER=pcsx2`, Apple M4, windowed): "runs well". Not yet measured: frame times in a
   race, resolution scaling, whether the previous-frame car flashes of the built-in renderer are gone, and the
   "0 acquires" counter (Vulkan only; meaningless on Metal).
-- Not done: publishing the fork branch (needs a copy of `moesuito/gt4recomp-gs` under the owner's account).
