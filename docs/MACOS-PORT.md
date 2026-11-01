@@ -231,3 +231,25 @@ Open design points:
 - Known failures on macOS (Windows path rules, already failing before the port): `gt4l-core`
   `stored_paths_inside_the_install_folder_become_relative`, `system_check` `the_required_list_matches_the_game_source`,
   `gt4l-tauri` `settings_store_no_absolute_path_inside_the_install_folder`.
+
+## Releases
+
+`ports/macos/release_macos.sh <release name>` (for example `1.2.5-mac.1`) builds a release on the owner's Mac and
+uploads nothing:
+
+- `ports/macos/build_release_deps.sh` builds the bundled libraries for arm64 and macOS 14.4 (SDL3 3.4.18, zstd, lz4,
+  libpng with APNG, libjpeg-turbo, libwebp, freetype, plutovg, plutosvg, rapidyaml) from hash-checked sources: the
+  versions and hashes of PCSX2's macOS dependency script, SDL3 at the game's pin (hash equal to the GitHub release
+  digest). Homebrew bottles target the running macOS only. The prefix must have no spaces (WebP records it unquoted),
+  so a checkout under "Application Support" uses `~/Library/Caches/GT4Recomp/macos-release-deps`.
+- The game (`build/macos-release/game`, release runtime and license guard required, ctest without
+  `native_gs_stream_client`), gt4-gs (`build/macos-release/gs-build`, packaged by the fork's `package-macos.sh`) and
+  the launcher (`MACOSX_DEPLOYMENT_TARGET=14.4`) are built for macOS 14.4.
+- `package_app.py --libraries <prefix>/lib --min-macos 14.4` bundles the release libraries and refuses any program or
+  library that needs a newer macOS. Output: `build/macos-release/out/GT4Recomp.app`,
+  `GT4Recomp-<name>-macos-arm64.zip` (ditto) and `SHA256SUMS`.
+- The game executable carries the translated game code, as upstream releases do (decision 0069); the disc image is
+  never included. The app is signed ad hoc, not notarized.
+- `Casks/gt4recomp.rb` makes this repository a Homebrew tap; update its `version` and `sha256` for each release.
+- Checked for 1.2.5-mac.1: every bundled program and library has `minos` 14.4; the unzipped release started gt4-gs on
+  Metal and showed the picture in the game window. Not checked: an actual macOS 14 or 15 machine.

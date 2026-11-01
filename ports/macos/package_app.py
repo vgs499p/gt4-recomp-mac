@@ -80,9 +80,22 @@ def locate(name, referrer):
     raise SystemExit(f"cannot resolve library {name} of {referrer}")
 
 
-def bundle_libraries(programs, frameworks):
+def minimum_macos(binary):
+    """The `minos` of the arm64 LC_BUILD_VERSION of `binary`, as a tuple of ints."""
+    output = subprocess.run(["otool", "-l", str(binary)], check=True, capture_output=True, text=True).stdout
+    lines = output.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip() == "cmd LC_BUILD_VERSION":
+            for entry in lines[index:index + 6]:
+                if entry.strip().startswith("minos "):
+                    return tuple(int(part) for part in entry.split()[1].split("."))
+    raise SystemExit(f"{binary} has no LC_BUILD_VERSION")
+
+
+def bundle_libraries(programs, frameworks, preferred=None):
     """Copies the libraries of `programs` (and theirs, recursively) into `frameworks`. Returns the copied files by
-    file name; every reference is later rewritten to @rpath/<file name>."""
+    file name; every reference is later rewritten to @rpath/<file name>. A library with the same file name in
+    `preferred` (the release libraries) is taken from there instead of the place the program was linked against."""
     copied = {}
     pending = [(program, name) for program in programs for name in dependencies(program)]
     while pending:
@@ -91,6 +104,8 @@ def bundle_libraries(programs, frameworks):
         if leaf in copied:
             continue
         source = locate(name, referrer)
+        if preferred and (preferred / leaf).is_file():
+            source = (preferred / leaf).resolve()
         target = frameworks / leaf
         shutil.copy2(source, target)
         target.chmod(0o755)
@@ -116,6 +131,10 @@ def main():
     parser.add_argument("--game", type=Path, default=REPO / "build/macos/ports/macos/gt4vulkan")
     parser.add_argument("--gs", type=Path, default=REPO / "build/macos/ports/macos/gs")
     parser.add_argument("--gs-version", default=DEFAULT_GS_VERSION)
+    parser.add_argument("--libraries", type=Path,
+                        help="take bundled libraries of the same name from this folder (ports/macos/build_release_deps.sh)")
+    parser.add_argument("--min-macos", default="14.4",
+                        help="LSMinimumSystemVersion; packaging fails if a bundled program or library needs a newer macOS")
     args = parser.parse_args()
 
     for required in (args.launcher, args.game, args.gs / "gt4-gs"):
@@ -142,7 +161,12 @@ def main():
     # Libraries, then the search path of each program relative to where it sits in the bundle.
     programs = {launcher: "@executable_path/../Frameworks", game: "@executable_path/../../Frameworks",
                 renderer: "@executable_path/../../../../Frameworks"}
-    copied = bundle_libraries(list(programs), frameworks)
+    copied = bundle_libraries(list(programs), frameworks, args.libraries.resolve() if args.libraries else None)
+    floor = tuple(int(part) for part in args.min_macos.split("."))
+    too_new = [f"{path.name} needs macOS {'.'.join(map(str, minimum_macos(path)))}"
+               for path in list(copied.values()) + list(programs) if minimum_macos(path) > floor]
+    if too_new:
+        raise SystemExit(f"not runnable on macOS {args.min_macos}: " + "; ".join(too_new))
     for library in copied.values():
         run("install_name_tool", "-id", f"@rpath/{library.name}", str(library))
         rewrite_references(library, copied)
@@ -184,7 +208,7 @@ def main():
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>{version}</string>
   <key>CFBundleVersion</key><string>{version}</string>
-  <key>LSMinimumSystemVersion</key><string>14.4</string>
+  <key>LSMinimumSystemVersion</key><string>{args.min_macos}</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.racing-games</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>GCSupportsControllerUserInteraction</key><true/>

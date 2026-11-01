@@ -33,8 +33,7 @@ Tested only on an **Apple M4**. Other Apple Silicon Macs should work but have no
 
 ## Known issues
 
-- **There is no ready-made Mac app to download yet.** For now you build it from source with your own disc image
-  (see below). No release will ever include the disc itself: you always bring your own copy.
+- The app is not notarized by Apple (see Install for how to open it).
 - The built-in renderer (used without `GT4_RENDERER=pcsx2`) runs on MoltenVK. It is slower, and cars from earlier
   frames can flash during races. Use the PCSX2 renderer.
 - Frame times, higher resolutions and long sessions have not been measured on macOS yet.
@@ -52,6 +51,23 @@ Tested only on an **Apple M4**. Other Apple Silicon Macs should work but have no
   (see the renderer build notes).
 - **Your own disc image of Gran Turismo 4 USA v2.00 (SCUS-97328)** as a plain `.iso`. This repository contains no
   game files.
+
+## Install
+
+1. Download `GT4Recomp-<version>-macos-arm64.zip` from [Releases](https://github.com/vgs499p/gt4-recomp-mac/releases),
+   unzip it and move **GT4Recomp.app** to Applications. Or with Homebrew:
+
+   ```sh
+   brew tap vgs499p/gt4-recomp-mac https://github.com/vgs499p/gt4-recomp-mac
+   brew install --cask gt4recomp
+   ```
+
+2. The app is signed but not notarized, so the first time macOS refuses to open it. Open **System Settings > Privacy &
+   Security** and click **Open Anyway** next to GT4Recomp (the Homebrew install skips this step).
+3. Choose your Gran Turismo 4 (USA) v2.00 disc image once, then press **Play**. Your settings, saves and the copy of
+   your disc go in `~/Library/Application Support/GT4Recomp`.
+
+Releases never include the disc image: you always bring your own copy.
 
 ## Build and play
 
