@@ -20,9 +20,104 @@ pub fn monitors() -> Vec<Monitor> {
     windows_impl::monitors()
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+pub fn monitors() -> Vec<Monitor> {
+    macos_impl::monitors()
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn monitors() -> Vec<Monitor> {
     Vec::new()
+}
+
+/// macOS: the screens from AppKit, in `NSScreen.screens` order (the first one holds the menu bar and is the primary
+/// display). `device` and `name` are the screen's localized name, which is the name SDL gives the display and the
+/// name the game matches `GT4_MONITOR` against. Modes come from CoreGraphics in pixels (`CGDisplayCopyAllDisplayModes`;
+/// the desktop mode is `CGDisplayCopyDisplayMode`). AppKit needs the main thread: elsewhere the list is empty and
+/// the game opens on the primary display at its desktop size.
+#[cfg(target_os = "macos")]
+mod macos_impl {
+    use std::ffi::c_void;
+
+    use gt4l_core::display::{tidy_modes, Monitor, Size};
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::NSScreen;
+    use objc2_foundation::{NSNumber, NSString};
+
+    type DisplayId = u32;
+
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGDisplayCopyAllDisplayModes(display: DisplayId, options: *const c_void) -> *const c_void;
+        fn CGDisplayCopyDisplayMode(display: DisplayId) -> *const c_void;
+        fn CGDisplayModeGetPixelWidth(mode: *const c_void) -> usize;
+        fn CGDisplayModeGetPixelHeight(mode: *const c_void) -> usize;
+        fn CGDisplayModeRelease(mode: *const c_void);
+    }
+
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        fn CFArrayGetCount(array: *const c_void) -> isize;
+        fn CFArrayGetValueAtIndex(array: *const c_void, index: isize) -> *const c_void;
+        fn CFRelease(object: *const c_void);
+    }
+
+    fn pixel_size(mode: *const c_void) -> Size {
+        // SAFETY: `mode` is a live CGDisplayModeRef owned by the caller.
+        let (width, height) = unsafe { (CGDisplayModeGetPixelWidth(mode), CGDisplayModeGetPixelHeight(mode)) };
+        Size::new(width as u32, height as u32)
+    }
+
+    fn desktop_mode(display: DisplayId) -> Option<Size> {
+        // SAFETY: a Copy call; the mode is released after it is read.
+        unsafe {
+            let mode = CGDisplayCopyDisplayMode(display);
+            if mode.is_null() {
+                return None;
+            }
+            let size = pixel_size(mode);
+            CGDisplayModeRelease(mode);
+            Some(size)
+        }
+    }
+
+    fn all_modes(display: DisplayId) -> Vec<Size> {
+        // SAFETY: a Copy call; the array owns its modes and is released after they are read.
+        unsafe {
+            let array = CGDisplayCopyAllDisplayModes(display, std::ptr::null());
+            if array.is_null() {
+                return Vec::new();
+            }
+            let sizes = (0..CFArrayGetCount(array)).map(|index| pixel_size(CFArrayGetValueAtIndex(array, index))).collect();
+            CFRelease(array);
+            sizes
+        }
+    }
+
+    pub fn monitors() -> Vec<Monitor> {
+        let Some(main_thread) = MainThreadMarker::new() else {
+            return Vec::new();
+        };
+        let screens = NSScreen::screens(main_thread);
+        let key = NSString::from_str("NSScreenNumber");
+        let mut monitors = Vec::new();
+        for (index, screen) in screens.iter().enumerate() {
+            let description = screen.deviceDescription();
+            let Some(number) = description.objectForKey(&key) else { continue };
+            let Ok(number) = number.downcast::<NSNumber>() else { continue };
+            let display = number.unsignedIntValue();
+            let Some(desktop) = desktop_mode(display) else { continue };
+            let name = screen.localizedName().to_string();
+            monitors.push(Monitor {
+                device: name.clone(),
+                name,
+                primary: index == 0,
+                desktop,
+                modes: tidy_modes(&all_modes(display), desktop),
+            });
+        }
+        monitors
+    }
 }
 
 #[cfg(windows)]

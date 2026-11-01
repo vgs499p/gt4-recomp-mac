@@ -28,3 +28,11 @@ windows = { version = "0.62", features = [
     "Win32_Storage_FileSystem",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Screens (names as SDL reports them), the Trash and free disk space. All three are already in the lock file
+# through Tauri.
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSDictionary", "NSError", "NSFileManager", "NSString", "NSURL", "NSValue"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSScreen"] }
+libc = "0.2"

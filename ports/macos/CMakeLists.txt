@@ -236,6 +236,32 @@ if(EXISTS "${GT4_MACOS_RUNTIME_CAPSULE}/runtime.json" AND EXISTS "${GT4_MACOS_VU
         "${GT4_NATIVE}/mtvu_bridge.cpp")
     message(STATUS "macOS port: release runtime profile (MTVU, VU1 and VU0 AOT)")
 endif()
+# TASK-017 license demo guard (slice206 v2): scripts/prepare_license_guard.py output, checked against
+# docs/inputs/slice206-license-guard-runtime.json. It replaces the donor dispatch.cpp (the guard), kernel.cpp (halt dump,
+# off unless GT4_HALT_DUMP=1) and iop/cdvdfsv.cpp (FSV trace, off unless GT4_FSV_TRACE=1). Without it a license test
+# crashes: its demo decrypts wrong (the FPU is not bit-exact) and the loader sweeps memory (docs/LICENSE-DEMO-CIPHER.md).
+set(GT4_MACOS_LICENSE_GUARD "${CMAKE_SOURCE_DIR}/private/macos-license-guard" CACHE PATH
+    "prepare_license_guard.py output (guard only, no --display-aspect)")
+set(GT4_MACOS_LICENSE_GUARD_ENABLED OFF)
+if(EXISTS "${GT4_MACOS_LICENSE_GUARD}/runtime.json")
+    file(READ "${CMAKE_SOURCE_DIR}/docs/inputs/slice206-license-guard-runtime.json" guard_pin)
+    foreach(source IN ITEMS cdvdfsv dispatch kernel)
+        string(JSON expected GET "${guard_pin}" source_sha256 "${source}.cpp")
+        file(SHA256 "${GT4_MACOS_LICENSE_GUARD}/${source}.cpp" actual)
+        if(NOT actual STREQUAL expected)
+            message(FATAL_ERROR "${GT4_MACOS_LICENSE_GUARD}/${source}.cpp differs from the slice206 pin")
+        endif()
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${GT4_MACOS_LICENSE_GUARD}/${source}.cpp")
+        if(source STREQUAL "cdvdfsv")
+            list(REMOVE_ITEM macos_runtime_files "${GT4_DONOR}/runtime/src/iop/cdvdfsv.cpp")
+        else()
+            list(REMOVE_ITEM macos_runtime_files "${GT4_DONOR}/runtime/src/${source}.cpp")
+        endif()
+        list(APPEND macos_runtime_files "${GT4_MACOS_LICENSE_GUARD}/${source}.cpp")
+    endforeach()
+    set(GT4_MACOS_LICENSE_GUARD_ENABLED ON)
+    message(STATUS "macOS port: license demo guard (slice206)")
+endif()
 add_library(ps2runtime_vulkan STATIC ${macos_runtime_files} "${GT4_MACOS_PORT_DIR}/gs.cpp"
     "${GT4_MACOS_PORT_DIR}/gpu.cpp" "${GT4_NATIVE}/native_vulkan.cpp")
 if(GT4_MACOS_RELEASE_RUNTIME)
@@ -243,6 +269,9 @@ if(GT4_MACOS_RELEASE_RUNTIME)
     target_compile_definitions(gt4_perf_probe PUBLIC GT4_PERF_VU_SPLIT GT4_VU1_AOT GT4_VU0_AOT)
     target_compile_definitions(ps2runtime_vulkan PUBLIC GT4_MTVU_RUNTIME GT4_PERF_PROBE)
     target_link_libraries(ps2runtime_vulkan PUBLIC gt4_mtvu_runtime gt4_perf_probe)
+endif()
+if(GT4_MACOS_LICENSE_GUARD_ENABLED)
+    target_link_libraries(ps2runtime_vulkan PUBLIC gt4_license_guard)
 endif()
 target_include_directories(ps2runtime_vulkan PUBLIC "${GT4_DONOR}/runtime/include" "${GT4_DONOR}/runtime/src"
     "${GT4_DONOR}/runtime/src/gs" "${GT4_NATIVE}" "${GT4_NATIVE}/gs_stream" "${GT4_MACOS_PORT_DIR}")

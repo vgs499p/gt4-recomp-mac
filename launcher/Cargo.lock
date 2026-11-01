@@ -1226,6 +1226,10 @@ name = "gt4l-platform"
 version = "1.2.5"
 dependencies = [
  "gt4l-core",
+ "libc",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
  "sdl3",
  "windows",
 ]

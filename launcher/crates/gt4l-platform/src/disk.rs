@@ -21,7 +21,20 @@ fn free_space_of(existing: &Path) -> Option<u64> {
     Some(available)
 }
 
-#[cfg(not(windows))]
+/// macOS and other Unix systems: `statvfs`, the blocks available to an unprivileged user.
+#[cfg(unix)]
+fn free_space_of(existing: &Path) -> Option<u64> {
+    use std::os::unix::ffi::OsStrExt;
+    let path = std::ffi::CString::new(existing.as_os_str().as_bytes()).ok()?;
+    let mut stats: libc::statvfs = unsafe { std::mem::zeroed() };
+    // SAFETY: `path` is NUL-terminated and outlives the call; `stats` is a local the call fills.
+    if unsafe { libc::statvfs(path.as_ptr(), &mut stats) } != 0 {
+        return None;
+    }
+    Some(stats.f_bavail as u64 * stats.f_frsize as u64)
+}
+
+#[cfg(not(any(windows, unix)))]
 fn free_space_of(_existing: &Path) -> Option<u64> {
     None
 }

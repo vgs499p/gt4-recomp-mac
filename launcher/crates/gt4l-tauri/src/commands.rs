@@ -826,7 +826,15 @@ fn open_folder(folder: &Path) -> Result<(), String> {
             .map(|_| ())
             .map_err(|error| format!("could not open {}: {error}", folder.display()))
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("/usr/bin/open")
+            .arg(folder)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("could not open {}: {error}", folder.display()))
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = folder;
         Ok(())

@@ -1,5 +1,5 @@
 //! Moves files and folders to the Recycle Bin (SHFileOperationW with FOF_ALLOWUNDO), so a delete
-//! in the launcher can always be undone from the bin.
+//! in the launcher can always be undone from the bin. On macOS the same call moves them to the Trash.
 
 use std::path::Path;
 
@@ -35,7 +35,20 @@ pub fn move_to_recycle_bin(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(not(windows))]
+/// macOS: moves the item to the Trash (`NSFileManager trashItemAtURL`), where Finder can put it back.
+#[cfg(target_os = "macos")]
+pub fn move_to_recycle_bin(path: &Path) -> Result<(), String> {
+    use objc2_foundation::{NSFileManager, NSString, NSURL};
+
+    let text = path.to_str().ok_or_else(|| format!("not a UTF-8 path: {}", path.display()))?;
+    let url = NSURL::fileURLWithPath(&NSString::from_str(text));
+    let manager = NSFileManager::defaultManager();
+    manager
+        .trashItemAtURL_resultingItemURL_error(&url, None)
+        .map_err(|error| format!("could not move {} to the Trash: {}", path.display(), error.localizedDescription()))
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn move_to_recycle_bin(path: &Path) -> Result<(), String> {
     Err(format!("the Recycle Bin is only available on Windows: {}", path.display()))
 }
@@ -52,7 +65,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     fn off_windows_every_delete_is_refused() {
         let path = std::env::temp_dir();
         let error = move_to_recycle_bin(&path).unwrap_err();
