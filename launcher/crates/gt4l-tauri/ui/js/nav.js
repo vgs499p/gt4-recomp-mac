@@ -318,6 +318,14 @@
   });
 
   document.addEventListener("pointerdown", function () { setMode("mouse"); }, true);
+  // WebKit (the macOS web view) does not focus a button that is clicked, unlike WebView2. The pages follow focus
+  // (the settings tab list shows the focused tab), so a click on a button focuses it here, as it does on Windows.
+  document.addEventListener("mousedown", function (event) {
+    var button = event.target && event.target.closest ? event.target.closest("button, a[href], [tabindex]") : null;
+    if (button && button !== document.activeElement && !button.disabled) {
+      button.focus({ preventScroll: true });
+    }
+  }, true);
   document.addEventListener("pointermove", function () { setMode("mouse"); }, true);
 
   // "mouse", "keys" or "pad": the last kind of input used. Pages use it to tell a pad A from a mouse click.
