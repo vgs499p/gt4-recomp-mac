@@ -43,7 +43,7 @@ macOS writes LF; that is the only difference).
 |---|---|---|
 | 1 | Host runtime and its controls build and pass on macOS (no game data needed) | Done (35 tests) |
 | 2 | EE game library regenerated for arm64 from the owner's ISO, game executable, first boot | Done (boots to the first menu) |
-| 3 | GS renderer process (`gt4recomp-gs`, PCSX2 fork) built for macOS | Not started |
+| 3 | GS renderer process (`gt4recomp-gs`, PCSX2 fork) built for macOS | Done (Metal; owner race test passed) |
 | 4 | Launcher (Tauri) platform crate and `.app` packaging | Not started |
 
 ### Milestone 1 detail
