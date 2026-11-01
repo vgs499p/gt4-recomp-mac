@@ -172,12 +172,10 @@ build/macos/ports/macos/gt4vulkan private/macos-ee-producer/SCUS_973.28.elf \
 
 Open design points:
 
-- **GS process presentation (milestone 3).** On Windows the GS process draws into a child of the game window
-  (CONTROL attach_window carries the HWND). macOS has no cross-process child windows; candidates are a GS-owned window
-  kept on top of the game window, or an IOSurface / `CAMetalLayer` shared through a Mach port. `attach_window` sends the
-  game's `SDL_Window` pointer as a placeholder until this is decided.
+- **GS process presentation (milestone 3).** Decided: a remote Core Animation context hosted with `CALayerHost`
+  (see below). `attach_window` still sends the game's `SDL_Window` pointer, which gt4-gs only logs.
 
-### Milestone 3 progress (in progress, not yet run end to end)
+### Milestone 3 progress (runs end to end; fork branch not published)
 
 - `gt4recomp-gs` (tag `gt4gs-v1.2.1`) builds for arm64 macOS with the Metal renderer (`USE_VULKAN=OFF`, Qt off,
   system FFmpeg ignored) in a private clone on a local branch `gt4gs/macos` (not pushed). Pinned plutovg 1.3.2,
@@ -194,6 +192,13 @@ Open design points:
 - **First live runs** (`GT4_RENDERER=pcsx2`, Apple M4, menus and intro only, 1,200 and 1,500 frames): handshake,
   READY (PCSX2 GS Metal x1, protocol 1.3), attach, picture layer hosted, clean shutdown with exit code 0. The GS
   process spent 0.4-0.6 ms per frame on its GS thread and 0.5-1.6 ms of GPU time (8-10 percent); the built-in
-  renderer waited up to 12 ms per frame on the GPU in a race. Not yet checked: the picture itself on screen (the
-  agent cannot capture the screen), races, resolution scaling, and the "0 acquires" swap chain counter.
-- Not done: pushing the fork branch (needs a fork under the owner's account), owner race test.
+  renderer waited up to 12 ms per frame on the GPU in a race.
+- **Black picture, fixed.** `GSDeviceMTL::UpdateWindow` replaces the view's layer when it rebuilds its surface, so
+  the shared context kept a layer nobody presented to. The live view now overrides `setLayer:` and moves the context to
+  every new layer (fork commit "keep the shared context on the Metal device's current layer"). Window captures with
+  `screencapture -l` show the intro playing in the game window. One remote context shows in only one `CALayerHost`
+  at a time, so hosting the same id twice leaves one host empty.
+- **Owner race test** (`GT4_RENDERER=pcsx2`, Apple M4, windowed): "runs well". Not yet measured: frame times in a
+  race, resolution scaling, whether the previous-frame car flashes of the built-in renderer are gone, and the
+  "0 acquires" counter (Vulkan only; meaningless on Metal).
+- Not done: publishing the fork branch (needs a copy of `moesuito/gt4recomp-gs` under the owner's account).
