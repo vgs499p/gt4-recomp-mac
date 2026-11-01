@@ -221,6 +221,13 @@ Open design points:
 - **Checked:** setup from the owner's ISO in the app; the bundled game with the launcher's session INI starts gt4-gs
   on Metal (3x) and shows the picture in the game window. **Not yet checked:** Play pressed in the app after the fix,
   the menu bar menu, saves and replays pages, controller navigation in the launcher.
+- The game now carries the slice206 license demo guard (`private/macos-license-guard`, from
+  `scripts/prepare_license_guard.py`, byte-identical to `slice206-license-guard-runtime.json`); without it license tests
+  crashed ("missing code at 0x00000000"). `GT4_MONITOR` on macOS is the display name AppKit and SDL report.
+- Launcher on macOS: Open folder uses `/usr/bin/open`, deletes go to the Trash, screens and modes come from AppKit and
+  CoreGraphics, free space from `statvfs`.
+- **Owner test (Apple M4, the app, Play):** "game works extremely well". Still to do: Windows wording in the launcher
+  pages (Recycle Bin, Documents, installer, "from GitHub").
 - Known failures on macOS (Windows path rules, already failing before the port): `gt4l-core`
   `stored_paths_inside_the_install_folder_become_relative`, `system_check` `the_required_list_matches_the_game_source`,
   `gt4l-tauri` `settings_store_no_absolute_path_inside_the_install_folder`.
