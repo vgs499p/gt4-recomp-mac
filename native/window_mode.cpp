@@ -14,6 +14,21 @@ bool parse_start_fullscreen(const char *value) {
   throw std::invalid_argument("GT4_FULLSCREEN must be 0 or 1");
 }
 
+#ifdef __APPLE__
+// macOS: GT4_MONITOR is the display's name as macOS (and SDL) reports it, such as "Built-in Retina Display" or
+// "DELL U2723QE": spaces and UTF-8 are allowed, control characters are not (window_sdl.cpp matches it exactly).
+std::string parse_monitor(const char *value) {
+  if (value == nullptr || std::strlen(value) == 0)
+    return {};
+  const std::size_t length = std::strlen(value);
+  bool clean = true;
+  for (std::size_t i = 0; i < length; ++i)
+    clean = clean && static_cast<unsigned char>(value[i]) >= 0x20 && value[i] != 0x7F;
+  if (length > 127 || !clean)
+    throw std::invalid_argument(std::string("GT4_MONITOR '") + value + "' is not a display name");
+  return value;
+}
+#else
 std::string parse_monitor(const char *value) {
   if (value == nullptr || std::strlen(value) == 0)
     return {};
@@ -25,6 +40,7 @@ std::string parse_monitor(const char *value) {
     throw std::invalid_argument(std::string("GT4_MONITOR '") + value + "' is not a monitor device name (\\\\.\\DISPLAYn)");
   return value;
 }
+#endif
 
 ClientSize fit_client(std::uint32_t wanted_width, std::uint32_t wanted_height, std::int32_t max_width,
                       std::int32_t max_height) {

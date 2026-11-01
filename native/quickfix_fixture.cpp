@@ -103,11 +103,18 @@ bool monitor_refused(const char *value) {
 void test_monitor_and_client_size() {
   require(parse_monitor(nullptr).empty(), "unset = primary monitor");
   require(parse_monitor("").empty(), "empty = primary monitor");
+#ifdef __APPLE__
+  require(parse_monitor("Built-in Retina Display") == "Built-in Retina Display", "a macOS display name is kept");
+  require(parse_monitor("DELL U2723QE (1)") == "DELL U2723QE (1)", "names with digits and brackets are kept");
+  require(monitor_refused("Studio\nDisplay"), "control characters are refused");
+  require(monitor_refused(std::string(128, 'A').c_str()), "too long");
+#else
   require(parse_monitor(R"(\\.\DISPLAY2)") == R"(\\.\DISPLAY2)", "a device name is kept");
   require(monitor_refused("DISPLAY2"), "no device prefix");
   require(monitor_refused(R"(\\.\)"), "too short");
   require(monitor_refused(R"(\\.\DISPLAY 2)"), "spaces");
   require(monitor_refused(R"(\\.\DISPLAY2222222222222222222222222)"), "too long");
+#endif
   const ClientSize same = fit_client(1920, 1080, 2560, 1400);
   require(same.width == 1920 && same.height == 1080, "a size that fits is kept");
   const ClientSize wide = fit_client(3440, 1440, 3440, 1380);
