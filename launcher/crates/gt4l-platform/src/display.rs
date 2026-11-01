@@ -32,8 +32,8 @@ pub fn monitors() -> Vec<Monitor> {
 
 /// macOS: the screens from AppKit, in `NSScreen.screens` order (the first one holds the menu bar and is the primary
 /// display). `device` and `name` are the screen's localized name, which is the name SDL gives the display and the
-/// name the game matches `GT4_MONITOR` against. Modes come from CoreGraphics in pixels (`CGDisplayCopyAllDisplayModes`;
-/// the desktop mode is `CGDisplayCopyDisplayMode`). AppKit needs the main thread: elsewhere the list is empty and
+/// name the game matches `GT4_MONITOR` against. The desktop size is the screen's size in points; the other modes come
+/// from CoreGraphics in pixels (`CGDisplayCopyAllDisplayModes`, plus the current `CGDisplayCopyDisplayMode`). AppKit needs the main thread: elsewhere the list is empty and
 /// the game opens on the primary display at its desktop size.
 #[cfg(target_os = "macos")]
 mod macos_impl {
@@ -106,14 +106,22 @@ mod macos_impl {
             let Some(number) = description.objectForKey(&key) else { continue };
             let Ok(number) = number.downcast::<NSNumber>() else { continue };
             let display = number.unsignedIntValue();
-            let Some(desktop) = desktop_mode(display) else { continue };
+            let Some(native) = desktop_mode(display) else { continue };
+            // The default size is the screen's "looks like" size in points (1710 x 1112 on a 14-inch MacBook Pro), as
+            // macOS games usually render: the full Retina pixel size (3420 x 2224 there) would set a 6x internal
+            // resolution, too much for the base Apple GPUs in heavy scenes. The pixel modes stay selectable.
+            let frame = screen.frame();
+            let looks_like = Size::new(frame.size.width.round() as u32, frame.size.height.round() as u32);
+            let desktop = if looks_like.width > 0 && looks_like.height > 0 { looks_like } else { native };
+            let mut sizes = all_modes(display);
+            sizes.push(native);
             let name = screen.localizedName().to_string();
             monitors.push(Monitor {
                 device: name.clone(),
                 name,
                 primary: index == 0,
                 desktop,
-                modes: tidy_modes(&all_modes(display), desktop),
+                modes: tidy_modes(&sizes, desktop),
             });
         }
         monitors

@@ -9,6 +9,8 @@
   GT4.features = {
     mods: false
   };
+  // The macOS app (WebKit web view): wording for the Trash and a renderer that ships inside the app.
+  GT4.mac = /Macintosh/.test(root.navigator ? root.navigator.userAgent : "");
   // Home background slideshow (six slots, in order); see ui/assets/backgrounds/README.md. Each slot has a CSS
   // class bg-slide-1..6 in css/app.css, so the list length must match the CSS slots.
   GT4.config = {

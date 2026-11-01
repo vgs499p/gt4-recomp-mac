@@ -212,12 +212,18 @@ pub fn check_user_value(id: &str, raw: &str) -> Result<String, String> {
     parse_value(row, raw).map_err(|error| error.0)
 }
 
+/// Rows that only mean something on Windows, never offered on macOS (they are still written with their defaults):
+/// the graphics API (gt4-gs on macOS runs every GPU request on Metal), Windows Arbitrary Code Guard, and the GPU usage
+/// read from the Windows per-process counters.
+pub const WINDOWS_ONLY_ROWS: &[&str] = &["renderer", "prohibit_dynamic_code", "perf_overlay_gpu"];
+
 /// Rows the launcher may show: basic or advanced, settable, and with a settable value for enums.
 pub fn offered() -> Vec<&'static Row> {
     rows()
         .iter()
         .filter(|row| {
-            row.page != MODS_PAGE
+            !(cfg!(target_os = "macos") && WINDOWS_ONLY_ROWS.contains(&row.id.as_str()))
+                && row.page != MODS_PAGE
                 && row.page != "hidden"
                 && row.status == "ok"
                 && !matches!(row.written.as_str(), "never" | "launcher")
@@ -508,7 +514,8 @@ mod tests {
         ] {
             let overlay = row(id).unwrap();
             assert_eq!((overlay.section.as_str(), overlay.key.as_str(), overlay.page.as_str()), ("GT4GS", key, "advanced"));
-            assert!(offered().iter().any(|offered| offered.id == id), "{id} is offered");
+            let windows_only = cfg!(target_os = "macos") && WINDOWS_ONLY_ROWS.contains(&id);
+            assert_eq!(offered().iter().any(|offered| offered.id == id), !windows_only, "{id} offered (not on macOS when Windows-only)");
         }
     }
 

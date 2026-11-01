@@ -556,6 +556,19 @@ pub fn about_text(version: &str) -> String {
 }
 
 /// Open-source notices of the launcher's user interface. Full texts are installed with the program.
+#[cfg(target_os = "macos")]
+pub fn licenses_text() -> &'static str {
+    "GT4Recomp is MIT licensed.\n\n\
+     The launcher interface is built with Tauri 2 (MIT or Apache-2.0) and runs in the macOS system web view (WebKit).\n\n\
+     Typefaces: Roboto and Roboto Condensed (Apache-2.0), bundled in the launcher.\n\n\
+     GSdx is the PCSX2 GS renderer of the PCSX2 project (https://pcsx2.net), licensed GPL-3.0-or-later. It is the \
+     gt4-gs program inside the app, and it runs in its own process; it is not part of GT4Recomp's MIT code. Its \
+     source is https://github.com/vgs499p/gt4recomp-gs (branch gt4gs/macos) and its licence is next to it in the app.\n\n\
+     The launcher uses the Rust crates listed in launcher/Cargo.lock."
+}
+
+/// Open-source notices of the launcher's user interface. Full texts are installed with the program.
+#[cfg(not(target_os = "macos"))]
 pub fn licenses_text() -> &'static str {
     "GT4Recomp is MIT licensed.\n\n\
      The launcher interface is built with Tauri 2 (MIT or Apache-2.0) and runs in Microsoft Edge WebView2, \

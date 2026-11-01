@@ -141,7 +141,13 @@ pub const SETTINGS: &[SettingDef] = &[
         page: Page::Display,
         group: "Window",
         title: "Fullscreen",
-        info: "Start in fullscreen on the chosen monitor (a borderless window that covers it). Alt+Enter or F11                switches while playing.",
+        info: if cfg!(target_os = "macos") {
+            "Start in fullscreen on the chosen monitor (a borderless window that covers it). Option+Return or F11 \
+             switches while playing."
+        } else {
+            "Start in fullscreen on the chosen monitor (a borderless window that covers it). Alt+Enter or F11 \
+             switches while playing."
+        },
         kind: TOGGLE,
         default: "on",
         connected: true,

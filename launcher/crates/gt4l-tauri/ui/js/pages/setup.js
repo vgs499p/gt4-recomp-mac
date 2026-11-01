@@ -23,7 +23,7 @@
     { id: "copying", label: "Copying game files", detail: "a copy of your disc image for GT4Recomp" },
     { id: "checking", label: "Checking disc", detail: null },
     { id: "preparing", label: "Preparing game files", detail: null },
-    { id: "renderer", label: "Graphics renderer", detail: "GSdx (gt4-gs) from GitHub" }
+    { id: "renderer", label: "Graphics renderer", detail: GT4.mac ? "GSdx (gt4-gs), included in the app" : "GSdx (gt4-gs) from GitHub" }
   ];
   var RENDERER_TEXT = {
     listing: "finding the latest version",

@@ -27,7 +27,7 @@
       activate: "saves_activate",
       remove: "saves_delete",
       removeTitle: "Delete save?",
-      removeText: "The save goes to the Recycle Bin. You can restore it from there."
+      removeText: GT4.mac ? "The save goes to the Trash. You can restore it from there." : "The save goes to the Recycle Bin. You can restore it from there."
     },
     replays: {
       title: "Replays",
@@ -40,7 +40,7 @@
       activate: null,
       remove: "replays_delete",
       removeTitle: "Delete replay?",
-      removeText: "The replay goes to the Recycle Bin. You can restore it from there."
+      removeText: GT4.mac ? "The replay goes to the Trash. You can restore it from there." : "The replay goes to the Recycle Bin. You can restore it from there."
     }
   };
 

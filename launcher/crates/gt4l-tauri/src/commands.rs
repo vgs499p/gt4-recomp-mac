@@ -712,7 +712,7 @@ fn delete_item(name: &str, shared: &Shared, kind: Kind) -> Result<LibraryView, S
         .ok_or_else(|| "That item is not in the library any more.".to_string())?;
     let result = saves::delete(&state.library, &item);
     let status = match result {
-        Ok(()) => format!("{} moved to the Recycle Bin.", item.label),
+        Ok(()) => format!("{} moved to the {}.", item.label, if cfg!(target_os = "macos") { "Trash" } else { "Recycle Bin" }),
         Err(message) => message,
     };
     match kind {
