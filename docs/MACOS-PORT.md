@@ -1,6 +1,6 @@
 # macOS arm64 port
 
-Status: in progress (fork `vgs499p/gt4-staticrecomp`). The Windows-qualified build is unchanged; every macOS change
+Status: in progress (fork `vgs499p/gt4-recomp-mac`). The Windows-qualified build is unchanged; every macOS change
 is either a new file or an `#ifdef _WIN32` / `#ifndef _WIN32` branch beside the original code.
 
 ## Build
