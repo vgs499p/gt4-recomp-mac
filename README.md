@@ -134,7 +134,11 @@ Turn the controller on before you start the game.
 ## Credits
 
 - **[GT4Recomp](https://github.com/moesuito/gt4-staticrecomp)** by moesuito and contributors: the project this port is
-  built on. Everything that makes the game run is theirs.
+  built on. Everything that makes the game run is theirs. Its GitHub contributors include Wise
+  ([gustavocanepa](https://github.com/gustavocanepa)), Julio Vitor Rufino ([JulioHeroZ](https://github.com/JulioHeroZ))
+  and Luan Antony ([luanantony](https://github.com/luanantony)).
+- **gt4-staticrecomp**, the original project by [Kaezzey](https://github.com/Kaezzey) (Niket Shah), where GT4Recomp
+  started.
 - **[ps2-web-recomp](https://github.com/snuri00/ps2-web-recomp)** (MIT) by snuri00: the runtime foundation.
 - **[gt4-decomp](https://github.com/gustavocanepa/gt4-decomp)** (MIT) by gustavocanepa,
   **[Nenkai's GT research](https://github.com/Nenkai)** and **[GT4FS](https://github.com/Razer2015/GT4FS)** by
