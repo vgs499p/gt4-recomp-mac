@@ -15,14 +15,17 @@
 #include "gpu.hpp"
 #include "gs/gs.hpp"
 #include "host_io.hpp"
+#include "wheel.hpp"
 #include "native_vulkan.hpp"
 #include "ps2/system.hpp"
 #include "perf_probe.hpp"
 #include "frame_clock.hpp"
+#include "frame_skip.hpp"
 #include "pacing.hpp"
 #include "window_mode.hpp"
 #include "cursor_autohide.hpp"
 #include "achievements.hpp"
+#include "input_recording.hpp"
 #ifdef GT4_GS_STREAM_CLIENT
 #include "gs_stream/gs_stream_client.hpp"
 #include "gs_stream/gs_layer_host_mac.hpp"
@@ -41,6 +44,7 @@
 #include <sys/file.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <cmath>
 #include <cstdio>
@@ -56,7 +60,13 @@ constexpr const char window_title[] = "Gran Turismo 4";
 SDL_Window *game_window = nullptr;
 bool surface_attached = false;
 bool closing = false;
+std::uint64_t input_vblank = 0;  // guest VBlanks so far (input recording, pacing, frame skip)
 ControllerInput *controller = nullptr;
+// Racing wheel bridge (native/wheel.hpp): wheel, pedals, handbrake and shifter devices mapped onto the DualShock 2
+// state. Disabled unless a wheel.toml with enabled = true is found.
+gt4::wheel::WheelInput *wheel_controller = nullptr;
+gt4::wheel::WheelConfig active_wheel;
+bool has_explicit_wheel_file = false;
 gt4::window_mode::ToggleState fullscreen_state;
 #ifdef GT4_SHAPE_CAPTURE
 std::unique_ptr<gt4::observation::CaptureControl> capture;
@@ -188,6 +198,17 @@ SDL_DisplayID chosen_monitor(const std::string &device) {
   return primary;
 }
 
+// IN-520: GT4_INPUT_RECORD=<file> writes the pad state the game receives per VBlank, and F9 ends the recording and closes the
+// game. GT4_INPUT_REPLAY=<file> gives the game those states at the same VBlanks instead of reading any input.
+gt4::input_recording::Recorder input_recorder;
+std::unique_ptr<gt4::input_recording::Player> input_player;
+// GT4_PACING_FROM_VBLANK=<n>: no waiting before this VBlank, then paced: a bench reaches a race in less time, with the same
+// presses, since they count VBlanks.
+const std::uint64_t paced_from_vblank = [] {
+  const char *text = std::getenv("GT4_PACING_FROM_VBLANK");
+  return text != nullptr ? std::strtoull(text, nullptr, 10) : 0ull;
+}();
+
 void apply_pad(const PadState &pad) {
   ps2::set_pad_buttons(pad.buttons);
   for (int axis = 0; axis < 4; ++axis)
@@ -244,6 +265,14 @@ void on_pixel_size_changed() {
 
 // One SDL event, as window_procedure handles one message. Returns false once the window is closing.
 bool handle_event(const SDL_Event &event) {
+  if (event.type == SDL_EVENT_KEY_DOWN && input_recorder.active() && event.key.scancode == SDL_SCANCODE_F9) {
+    const std::uint64_t changes = input_recorder.finish(input_vblank);
+    std::fprintf(stderr, "[input] recording ended by F9 at VBlank %llu, %llu changes; closing the game\n",
+                 static_cast<unsigned long long>(input_vblank), static_cast<unsigned long long>(changes));
+    ps2::halt("window closed");
+    closing = true;
+    return false;
+  }
   if (event.type == SDL_EVENT_KEY_DOWN) {
     const SDL_Scancode key = event.key.scancode;
     const bool repeat = event.key.repeat;
@@ -280,6 +309,7 @@ bool handle_event(const SDL_Event &event) {
   }
   if (event.type == SDL_EVENT_QUIT ||
       (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED && event.window.windowID == SDL_GetWindowID(game_window))) {
+    input_recorder.finish(input_vblank);  // Cmd+Q or the window's close button also leave a complete recording
 #ifdef GT4_GS_STREAM_CLIENT
     // TASK-038: with GT4_RENDERER=pcsx2 halt the guest; the window is destroyed in cleanup(), after
     // gs_stream::finish() has shut the GS process down (or ended it).
@@ -295,7 +325,9 @@ bool handle_event(const SDL_Event &event) {
   }
   if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST && controller) {
     controller->stop();
-    if (ps2::g_options.presses.empty())
+    if (wheel_controller)
+      wheel_controller->stop();
+    if (ps2::g_options.presses.empty() && !input_player)
       apply_pad({});
     return true;
   }
@@ -336,15 +368,58 @@ bool pump_messages() {
 // Releases the guest frame. Paced mode waits on the wall-clock grid first, so
 // each VBlank comes at the donor's 60 Hz rate and audio never sets the pace.
 // The interval histogram is recorded in both modes.
+std::int64_t last_release = 0;
+std::int64_t ee_frame_ticks = 0;  // from the last release to this VBlank, before any wait for the pacer
+std::int64_t last_gs_wait = 0;
+
+// TASK-082: what the frame skip decides from, and what the presenter and the pacer get from it.
+void note_frame_skip_vblank() {
+  if (!gt4::frame_skip::g_enabled) return;
+  gt4::frame_skip::Controller &skip = gt4::frame_skip::controller();
+  const std::int64_t gs_wait = gt4::pacing::ee_gs_wait_us.load(std::memory_order_relaxed);
+  const std::int32_t ee_frame = static_cast<std::int32_t>(std::max<std::int64_t>(
+      ee_frame_ticks * 1000000 / static_cast<std::int64_t>(frame_clock ? frame_clock->frequency() : 1) - (gs_wait - last_gs_wait), 0));
+  last_gs_wait = gs_wait;
+  skip.note_vblank(input_vblank, gt4::pacing::ee_slack_us, gt4::pacing::gs_late_us.load(std::memory_order_relaxed),
+                   gt4::pacing::gs_cost_us.load(std::memory_order_relaxed), ee_frame);
+  gt4::pacing::frame_skip_engaged.store(skip.gate_open(), std::memory_order_relaxed);
+  gt4::pacing::frame_skip_recent.store(skip.skipping_recently(), std::memory_order_relaxed);
+  if (input_vblank % 600 == 0) gt4::frame_skip::print_report(stderr);
+}
+
 void release_frame() {
   if (pacing_mode == gt4::pacing::Mode::paced) {
     if (!frame_pacer->anchored())
       frame_pacer->anchor(frame_clock->now());
+    if (const std::int32_t shift = gt4::pacing::grid_shift_us.exchange(0, std::memory_order_relaxed)) {
+      frame_pacer->shift(static_cast<std::int64_t>(shift) * static_cast<std::int64_t>(frame_clock->frequency()) / 1000000);
+    }
     // TASK-084 step 0: the sleep is its own category, so F8 ee_dispatch and unattributed mean work, not sleep.
     GT4_PERF_SCOPE(gt4::perf::Category::pacing_wait);
-    frame_clock->wait_until(frame_pacer->deadline());
+    // Bench switch: GT4_PACING_NO_WAIT=1 runs as fast as it can with a window, to compare with a run with no window.
+    static const bool no_wait = std::getenv("GT4_PACING_NO_WAIT") != nullptr;
+    ee_frame_ticks = last_release != 0 ? frame_clock->now() - last_release : 0;
+    gt4::pacing::ee_slack_us = static_cast<std::int32_t>(std::clamp<std::int64_t>(
+        (frame_pacer->deadline() - frame_clock->now()) * 1000000 / static_cast<std::int64_t>(frame_clock->frequency()), -100000, 100000));
+    // IN-519: behind the grid, a frame waits at least this long after the last one, so the lost time comes back at about
+    // 1 ms per frame; past a whole period behind, the pacer restarts its grid. GT4_PACING_MIN_INTERVAL_US=0 releases at once.
+    static const std::int64_t min_interval = [] {
+      const char *text = std::getenv("GT4_PACING_MIN_INTERVAL_US");
+      const std::int64_t microseconds = text != nullptr ? std::atoll(text) : 15700;
+      return microseconds * static_cast<std::int64_t>(frame_clock->frequency()) / 1000000;
+    }();
+    // Not waiting, the grid must not run ahead of the clock, or the first paced frame would sleep until the grid came back.
+    if (input_vblank + 1 < paced_from_vblank) frame_pacer->anchor(frame_clock->now());
+    if (!no_wait && input_vblank + 1 >= paced_from_vblank) {
+      // TASK-082 and TASK-146: with frames being left out, up to 12 frames (200 ms) are owed and paid back.
+      frame_pacer->set_resync_periods(gt4::pacing::frame_skip_engaged.load(std::memory_order_relaxed) ? 12 : 1);
+      const std::int64_t earliest =
+          last_release != 0 && !gt4::pacing::frame_skip_recent.load(std::memory_order_relaxed) ? last_release + min_interval : 0;
+      frame_clock->wait_until(std::max(frame_pacer->deadline(), earliest));
+    }
   }
   const std::int64_t released = frame_clock->now();
+  last_release = released;
   if (pacing_mode == gt4::pacing::Mode::paced)
     frame_pacer->release(released);
   pacing_diagnostics.record_release(released, frame_clock->frequency());
@@ -356,6 +431,8 @@ void on_vblank() {
       {ps2::now(), ps2::primitives_drawn(), ps2::vu1_interpreted_calls()});
 #endif
   release_frame();
+  ++input_vblank;
+  note_frame_skip_vblank();
   GT4_PERF_SCOPE(gt4::perf::Category::host_vblank);
   if (!pump_messages())
     return;
@@ -387,10 +464,23 @@ void on_vblank() {
         buttons |= binding.button_mask;
     }
   }
-  if (ps2::g_options.presses.empty()) {
-    apply_pad(controller->poll(focused, buttons));
+  if (input_player) {
+    apply_pad(input_player->at(input_vblank));
+  } else if (ps2::g_options.presses.empty()) {
+    // The wheel resolves which devices it owns first, so the gamepad path never reads them too.
+    if (wheel_controller) {
+      wheel_controller->prepare(focused);
+      controller->set_excluded_devices(wheel_controller->owned_device_ids());
+    }
+    PadState pad = controller->poll(focused, buttons);
+    if (wheel_controller)
+      wheel_controller->merge_prepared(pad);
+    apply_pad(pad);
+    input_recorder.vblank(input_vblank, pad);
     if (focused)
       controller->rumble(ps2::pad_rumble());
+    if (wheel_controller)
+      wheel_controller->rumble(focused, ps2::pad_rumble());
   }
   if (audio_output) {
     // Paced mode: move ring data to the device without waiting.

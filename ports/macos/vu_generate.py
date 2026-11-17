@@ -1,8 +1,9 @@
 """Regenerate the VU1 and VU0 AOT tables on macOS and check them against the release pins.
 
-The release runtime (slice191 profile) compiles two generated tables into the runtime: the VU1 table of all 2,048
-entries (docs/inputs/slice157-vu1-all.json) and the VU0 table of the 14 VCALLMS entries (slice160-vu0-aot.json). This
-script rebuilds both from the reconstructed ELF of `ee_producer.py prepare`:
+The release runtime compiles two generated tables into the runtime: the VU1 table of all 2,048 entries and the VU0 table
+of the 14 VCALLMS entries, both emitted by tools/vu_recomp from the images and entry lists pinned in
+docs/inputs/slice157-vu1-all.json and slice160-vu0-aot.json; the tables are checked against the release pin
+(RELEASE_PIN, upstream 1.3.0-rc14). This script rebuilds both from the reconstructed ELF of `ee_producer.py prepare`:
 
 - VU1 image: the decrypted ELF blob (scripts/vu1_image.py decrypt_blob) plus the 16 tail bytes pinned in
   slice155-vu1-image.json. The Windows recipe takes the tail from recorded VU1 snapshots, which a fresh machine does
@@ -30,6 +31,8 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 import vu1_image  # noqa: E402
 
 PYTHON = [sys.executable, '-E', '-s']
+# The release whose VU tables this port builds: upstream 1.3.0-rc14 (v2.00).
+RELEASE_PIN = 'docs/inputs/slice408-pcsx2.json'
 
 
 def sha256(path):
@@ -52,8 +55,15 @@ def generate(producer, output):
     if output.exists():
         raise ValueError('Output already exists; choose a fresh directory')
     vu1_pin = json.loads((ROOT / 'docs/inputs/slice155-vu1-image.json').read_text(encoding='utf-8'))
+    # Images and entry lists: the slice157/slice160 pins. Tables: the release pin (RELEASE_PIN), whose emitter (TASK-134,
+    # 2026-11-03) writes the same programs with faster operations from the same images and entry lists.
     vu1_table_pin = json.loads((ROOT / 'docs/inputs/slice157-vu1-all.json').read_text(encoding='utf-8'))['vu1_aot']
     vu0_pin = json.loads((ROOT / 'docs/inputs/slice160-vu0-aot.json').read_text(encoding='utf-8'))['vu0_aot']
+    release = json.loads((ROOT / RELEASE_PIN).read_text(encoding='utf-8'))
+    vu1_release, vu0_release = release['vu1_aot'], release['vu0_aot']
+    if (vu1_release['entry_list_sha256'], vu0_release['entry_list_sha256']) != (
+            vu1_table_pin['entry_list_sha256'], vu0_pin['entry_list_sha256']):
+        raise ValueError('The release pin uses other entry lists than slice157/slice160')
     elf = producer / 'SCUS_973.28.elf'
     require(elf, vu1_pin['elf']['sha256'], 'Reconstructed ELF')
     output.mkdir(parents=True)
@@ -90,14 +100,14 @@ def generate(producer, output):
     vu1_generated = output / 'vu1-gen'
     run([emitter, '--programs-per-file', '16', '--entry-policy', 'all', '--image', image, '--entries', vu1_entries,
          vu1_generated])
-    require(vu1_generated / 'vu1_generated.cpp', vu1_table_pin['generated_source_sha256'], 'VU1 table')
-    require(vu1_generated / 'manifest.json', vu1_table_pin['generated_manifest_sha256'], 'VU1 manifest')
+    require(vu1_generated / 'vu1_generated.cpp', vu1_release['generated_source_sha256'], 'VU1 table')
+    require(vu1_generated / 'manifest.json', vu1_release['generated_manifest_sha256'], 'VU1 manifest')
 
     vu0_generated = output / 'vu0-gen'
     run([emitter, '--unit', '0', '--namespace', 'gt4::vugen::vu0', '--entry-policy', 'vcallms',
          '--image', vu0_dir / 'vu0_image.bin', '--entries', vu0_entries, vu0_generated])
-    require(vu0_generated / 'vu0_generated.cpp', vu0_pin['table_sha256'], 'VU0 table')
-    require(vu0_generated / 'manifest.json', vu0_pin['manifest_sha256'], 'VU0 manifest')
+    require(vu0_generated / 'vu0_generated.cpp', vu0_release['table_sha256'], 'VU0 table')
+    require(vu0_generated / 'manifest.json', vu0_release['manifest_sha256'], 'VU0 manifest')
     return vu1_generated, vu0_generated
 
 

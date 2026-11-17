@@ -4,7 +4,11 @@
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include "install_paths.hpp"  // macOS port: the executable folder (executable_directory)
+#endif
 
 #include <SDL3/SDL.h>
 
@@ -888,9 +892,14 @@ static std::string find_wheel_file() {
   std::vector<std::filesystem::path> candidates;
   if (const char *controls = std::getenv("GT4_CONTROLS_FILE"); controls && *controls)
     candidates.push_back(std::filesystem::path(controls).parent_path() / "wheel.toml");
+#ifdef _WIN32
   wchar_t module[MAX_PATH] = {};
   if (GetModuleFileNameW(nullptr, module, MAX_PATH) > 0)
     candidates.push_back(std::filesystem::path(module).parent_path() / "wheel.toml");
+#else
+  if (const std::filesystem::path folder = gt4::install::executable_directory(); !folder.empty())
+    candidates.push_back(folder / "wheel.toml");
+#endif
   for (const auto &candidate : candidates) {
     std::error_code error;
     if (std::filesystem::is_regular_file(candidate, error))

@@ -21,10 +21,14 @@
 #include "ps2/memory.hpp"
 #endif
 
+#ifdef _WIN32
 #include <windows.h>
 
 #include <bcrypt.h>
 #include <io.h>
+#else
+#include <SDL3/SDL.h>
+#endif
 
 #include <algorithm>
 #include <cstdio>
@@ -61,6 +65,7 @@ void configure_trigger_range() {
                                                                   : gt4::controls::PressureScale::stock);
 }
 
+#ifdef _WIN32
 std::wstring widen(const std::string &text) {
   if (text.empty()) return {};
   const int length = MultiByteToWideChar(CP_ACP, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
@@ -285,6 +290,17 @@ int run_standalone(int argc, char **argv) {
   configure_trigger_range();                       // TASK-161: game.ini trigger_full_range as GT4_TRIGGER_FULL_RANGE
   return gt4_donor_main(static_cast<int>(storage.size()), pointers.data());
 }
+#else
+// macOS: the game is started by GT4Recomp.app's launcher, which passes the ELF, the disc and the settings; the standalone
+// layout of standalone.cpp (<install>\game, <install>\data, %LOCALAPPDATA%) is the Windows install. A start without an
+// ELF argument says so instead of guessing folders.
+int run_standalone(int, char **) {
+  SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Gran Turismo 4",
+                           "Start Gran Turismo 4 from the GT4Recomp app: it sets the game up from your disc and starts it.",
+                           nullptr);
+  return kExitProblem;
+}
+#endif
 
 } // namespace
 
