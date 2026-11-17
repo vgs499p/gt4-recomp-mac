@@ -19,12 +19,13 @@ add_library(gt4_vulkan_extensions STATIC "${GT4_NATIVE}/vulkan_extensions.cpp")
 add_library(gt4_install_paths STATIC "${GT4_NATIVE}/install_paths.cpp")
 add_library(gt4_memcard STATIC "${GT4_NATIVE}/memcard_store.cpp")
 add_library(gt4_license_guard STATIC "${GT4_NATIVE}/license_guard.cpp")
-add_library(gt4_perf_probe STATIC "${GT4_NATIVE}/perf_probe.cpp")
+add_library(gt4_perf_probe STATIC "${GT4_NATIVE}/perf_probe.cpp" "${GT4_NATIVE}/perf_clock.cpp")
 add_library(gt4_mtvu_measure STATIC "${GT4_NATIVE}/mtvu_measure.cpp")
 add_library(gt4_mtvu_journal STATIC "${GT4_NATIVE}/mtvu_journal.cpp")
 add_library(gt4_mtvu_runtime STATIC "${GT4_NATIVE}/mtvu_runtime.cpp")
 target_link_libraries(gt4_mtvu_runtime PUBLIC gt4_mtvu_journal gt4_mtvu_measure gt4_perf_probe gt4_quickfix)
-add_library(gt4_pad_mapping STATIC "${GT4_NATIVE}/pad_mapping.cpp")
+add_library(gt4_pad_mapping STATIC "${GT4_NATIVE}/pad_mapping.cpp" "${GT4_NATIVE}/pad_choice.cpp"
+    "${GT4_NATIVE}/input_recording.cpp")
 add_library(gt4_frame_clock STATIC "${GT4_NATIVE}/frame_clock.cpp")
 foreach(library IN ITEMS gt4_pacing gt4_quickfix gt4_vulkan_extensions gt4_install_paths gt4_memcard gt4_license_guard
                          gt4_perf_probe gt4_mtvu_measure gt4_mtvu_journal gt4_mtvu_runtime gt4_pad_mapping
@@ -91,7 +92,8 @@ gt4_fixture(native_shape_capture_control shape_capture_control_fixture
             "${GT4_NATIVE}/shape_capture_export.cpp" "${GT4_NATIVE}/shape_observer.cpp")
 
 # GS stream transport (TASK-035): POSIX shared memory and os_sync wake counters (gs_stream_ipc.hpp).
-add_library(gt4_gs_stream STATIC "${GT4_NATIVE}/gs_stream/gs_stream_ipc.cpp" "${GT4_NATIVE}/gs_stream/gs_stream_file.cpp")
+add_library(gt4_gs_stream STATIC "${GT4_NATIVE}/gs_stream/gs_stream_ipc.cpp" "${GT4_NATIVE}/gs_stream/gs_stream_file.cpp"
+    "${GT4_NATIVE}/gs_stream/gs_readback_probe.cpp")
 target_include_directories(gt4_gs_stream PUBLIC "${GT4_NATIVE}/gs_stream")
 target_compile_options(gt4_gs_stream PRIVATE ${GT4_WARNINGS})
 gt4_fixture(native_gs_stream_ipc gs_stream_ipc_fixture SOURCES "${GT4_NATIVE}/gs_stream/gs_stream_ipc_fixture.cpp"

@@ -39,7 +39,15 @@ inline DWORD GetEnvironmentVariableA(const char *name, char *buffer, DWORD size)
   return static_cast<DWORD>(length);
 }
 
+// SetEnvironmentVariableA: a null value removes the variable; nonzero on success, as on Windows.
+inline int SetEnvironmentVariableA(const char *name, const char *value) {
+  return (value ? setenv(name, value, 1) : unsetenv(name)) == 0;
+}
+
 inline DWORD GetCurrentProcessId() { return static_cast<DWORD>(getpid()); }
+
+// Sleep: milliseconds.
+inline void Sleep(DWORD milliseconds) { usleep(static_cast<useconds_t>(milliseconds) * 1000u); }
 
 // Milliseconds since an arbitrary fixed point (monotonic), as GetTickCount64.
 inline unsigned long long GetTickCount64() {

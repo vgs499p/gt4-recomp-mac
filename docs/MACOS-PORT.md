@@ -253,3 +253,32 @@ uploads nothing:
 - `Casks/gt4recomp.rb` makes this repository a Homebrew tap; update its `version` and `sha256` for each release.
 - Checked for 1.2.5-mac.1: every bundled program and library has `minos` 14.4; the unzipped release started gt4-gs on
   Metal and showed the picture in the game window. Not checked: an actual macOS 14 or 15 machine.
+
+## Upstream sync of 2026-11-16 (587 upstream commits)
+
+Merged `moesuito/gt4-staticrecomp` main into the macOS port (merge commit, no history rewritten). Conflicts were resolved
+by taking upstream's code and re-applying each macOS change on top:
+
+- **Native:** the POSIX renderer link keeps upstream's split readback request and reply (`kWaitForever` for the macOS
+  wait); audio keeps upstream's buffer profiles and the TASK-129 silent fallback, now also on the SDL3 path (no device,
+  `GT4_AUDIO=none` or an open failure runs the game without sound). New macOS pieces: `perf_clock` reads the arm64
+  generic timer (`CNTVCT_EL0`, scale from `CNTFRQ_EL0`, no calibration), `posix_compat.hpp` gains
+  `SetEnvironmentVariableA` and `Sleep`, achievements read `GT4_RA_CACHE_DIR` as UTF-8, and the macOS CMake builds
+  `pad_choice.cpp`, `input_recording.cpp` and `gs_readback_probe.cpp`.
+- **Launcher:** upstream renamed the Windows game to `gt4.exe` and added a per-game table (GT4, Spec II); on macOS the
+  programs stay `gt4vulkan` and `gt4vulkan-spec2`. CoreGS 2.0 (upstream's new default for capable PCs) is not in the
+  macOS game build, so on macOS it is shown but not selectable, setup never tries it, and a stored choice still runs
+  GSdx. The graphics API row (`graphics_api`) is hidden on macOS, which also hides the graphics card row (one GPU). Update
+  offers stay off. Mac wording now lives in the locale files as `<key>_mac` entries (en-US and pt-BR, same keys), used
+  by `i18n.js` on macOS.
+- **Checked on an Apple M4 after the merge:** macOS host build, 29 of 29 CTest controls (the six Vulkan GS controls need
+  the private donor and were not configured: the checkout was fresh); the launcher builds; launcher tests pass except 15
+  that need Windows (DPAPI, Windows paths and lock names, the Windows settings writer; 9 of them fail the same way on
+  unmodified upstream on macOS, 2 failed before the merge). Ten CoreGS 2.0 and graphics-API tests are ignored on macOS.
+- **Not checked:** the game itself. The game build needs the private inputs made from the owner's disc, and this
+  checkout is new. The macOS game target has not been updated for upstream's new game sources yet.
+- **Not ported yet** (new upstream controls not in the macOS build): CoreGS 2.0 (`native/hw_gs`), the 360-degree camera,
+  FoV adjustment, frame skip, full trigger range, USB wheels (`native_usb_dfp`, `native_wheel`), Spec II hooks and IOP,
+  SPU2 envelope, IPU and VU fast paths, standalone start and the window heartbeat.
+- **Known regression:** upstream now protects the RetroAchievements token with Windows DPAPI only, so signing in to
+  RetroAchievements fails on macOS until a Keychain store is added.
