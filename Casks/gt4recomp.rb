@@ -12,14 +12,15 @@ cask "gt4recomp" do
   homepage "https://github.com/vgs499p/gt4-recomp-mac"
 
   depends_on arch: :arm64
-  depends_on macos: ">= :sonoma"
+  depends_on macos: :sonoma
 
   app "GT4Recomp.app"
 
   # The app is signed ad hoc, not notarized: without this, macOS refuses to open it until it is allowed in
   # System Settings > Privacy & Security.
-  postflight do
-    system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{appdir}/GT4Recomp.app"]
+  postflight_steps do
+    run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{appdir}}/GT4Recomp.app"],
+                          writable_paths: ["GT4Recomp.app"], writable_base: :appdir
   end
 
   zap trash: "~/Library/Application Support/GT4Recomp"
