@@ -31,6 +31,10 @@ toml.workspace = true
 tauri = { version = "2.11", features = ["tray-icon"] }
 tauri-plugin-dialog = "2.8"
 
+[target.'cfg(unix)'.dependencies]
+# macOS: Stop asks the game to close with SIGTERM (commands::stop_game).
+libc = "0.2"
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
     "Win32_Foundation",

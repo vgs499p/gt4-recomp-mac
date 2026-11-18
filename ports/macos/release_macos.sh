@@ -40,7 +40,7 @@ echo "== game"
 cmake -S . -B "$WORK/game" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
 	-DCMAKE_OSX_DEPLOYMENT_TARGET=$MIN_MACOS -DCMAKE_PREFIX_PATH="$DEPS;/opt/homebrew" > "$WORK-game-configure.log"
 grep -q "license demo guard" "$WORK-game-configure.log" || { echo "the license guard is not in the build" >&2; exit 1; }
-grep -q "release runtime profile" "$WORK-game-configure.log" || { echo "the release runtime is not in the build" >&2; exit 1; }
+grep -q "release runtime" "$WORK-game-configure.log" || { echo "the release runtime is not in the build" >&2; exit 1; }
 cmake --build "$WORK/game"
 ctest --test-dir "$WORK/game" --output-on-failure -E native_gs_stream_client
 

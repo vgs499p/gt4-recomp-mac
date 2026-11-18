@@ -282,3 +282,34 @@ by taking upstream's code and re-applying each macOS change on top:
   SPU2 envelope, IPU and VU fast paths, standalone start and the window heartbeat.
 - **Known regression:** upstream now protects the RetroAchievements token with Windows DPAPI only, so signing in to
   RetroAchievements fails on macOS until a Keychain store is added.
+
+## Upstream 1.3.0-rc14 game on macOS (2026-11-18)
+
+The macOS game now builds from upstream's rc14 recipe (`docs/inputs/slice408-pcsx2.json`), every input regenerated on
+the Mac from the owner's disc and checked against its pin:
+
+| Input | macOS recipe | Checked against |
+|---|---|---|
+| EE units | `ports/macos/ee_generate.py --profile aspect`, then `scripts/camera360_units.py v200` | slice217 source inventory; rc14 `camera360_units` output inventory |
+| Runtime capsule | `prepare_perf_runtime.py --gs-stream --frame-cost` | `slice262-frame-cost-runtime.json` |
+| License guard | `prepare_license_guard.py --display-aspect --frame-counters` | the slice277 per-target guard of `slice408-spec2.json` (v2.00 rc14 used slice262; the script now makes the per-target one) |
+| VU1/VU0 tables | `ports/macos/vu_generate.py` | rc14 `vu1_aot` / `vu0_aot` |
+| Memory card, IPU, SPU2 | `prepare_memcard_flush.py`, `prepare_ipu_fast.py`, `prepare_spu2_runtime.py` | rc14 capsule hashes |
+| Port, shaders | as before (`main.cpp` of the scripted slice191 port; rc14's slice200 `main.cpp` was hand-edited and adds only Windows `--portable-check` and a headless flush) | slice191 / slice262 inputs |
+
+- Fast headers (`scripts/prepare_fast_headers.py`) are generated at configure time; `native/fp4.hpp` uses its
+  lane-by-lane form on arm64 (no SSE4.1). A NEON form is a possible speed-up, not done.
+- `game_main.cpp`: a start without the launcher shows a message on macOS (the standalone rules are the Windows install
+  layout); `native_standalone` is not built on macOS (Windows path samples).
+- `window_sdl.cpp` follows upstream's `window.cpp`: frame skip and the IN-519 pacing, the racing wheel bridge, input
+  recording and replay (`GT4_INPUT_RECORD`, `GT4_INPUT_REPLAY`, headless replay), `GT4_AUDIO=none` and the silent
+  fallback. Windows-only diagnostics (window watch, heartbeat, key forwarding) are not ported.
+- New controls built on macOS: camera_360, fov_adjust, trigger_range, flare_limits, frame_skip, usb_dfp, wheel,
+  input_recording, game_target, spu2_envelope, ipu_fast, vu_fast_ops. CTest: 47 of 47 on an Apple M4.
+- Launcher (fork changes): the Controls page rebinds keyboard keys (the game already read `key:` bindings from the
+  controls file); on macOS Stop sends SIGTERM, which SDL turns into the same quit as Cmd+Q, so the game exits 0 with
+  `window closed` (a normal close), and is ended only if it is still running after 10 seconds.
+- Release builds need Apple's Metal toolchain for the gt4-gs shaders (`xcodebuild -downloadComponent MetalToolchain`).
+- **Checked:** the app's game reaches the name entry with the rc14 features on (`[camera360] on`, `[fov] on`,
+  `[trigger] full range on`, gt4-gs on Metal) and SIGTERM ends it with exit code 0 and `window closed`. **Not checked:** a
+  race, the camera/FoV/trigger features in play, the wheel, keyboard rebinding and Stop from the launcher UI.

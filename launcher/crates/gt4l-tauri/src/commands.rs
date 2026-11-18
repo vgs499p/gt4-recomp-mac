@@ -798,6 +798,7 @@ pub fn first_start_hint_of(shared: &Shared) -> Value {
 }
 
 /// Stops the game process. The card is harvested by the watcher thread after the exit.
+#[cfg(not(unix))]
 #[tauri::command]
 pub fn stop_game(shared: State<'_, Shared>) -> Result<(), String> {
     let child = lock(shared.inner()).game_child.clone();
@@ -810,6 +811,49 @@ pub fn stop_game(shared: State<'_, Shared>) -> Result<(), String> {
             process.kill().map_err(|error| format!("could not stop the game: {error}"))?;
         }
     }
+    Ok(())
+}
+
+/// How long Stop waits for the game to close itself before it ends the process (macOS).
+#[cfg(unix)]
+const STOP_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// macOS: Stop asks the game to close (SIGTERM, which SDL turns into the same quit event as Cmd+Q or the window's close
+/// button), so it shuts the GS process down, flushes the memory card and exits 0 with `window closed`: a normal close, not
+/// "stopped unexpectedly". A game still running after STOP_GRACE is ended as on Windows. The card is harvested by the
+/// watcher thread after the exit.
+#[cfg(unix)]
+#[tauri::command]
+pub fn stop_game(shared: State<'_, Shared>) -> Result<(), String> {
+    let Some(child) = lock(shared.inner()).game_child.clone() else {
+        return Ok(());
+    };
+    let pid = {
+        let guard = match child.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        match guard.as_ref() {
+            Some(process) => process.id(),
+            None => return Ok(()),
+        }
+    };
+    // SAFETY: a plain signal to the game process this launcher started (its pid stays reserved while the Child is held).
+    if unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) } != 0 {
+        return Err(format!("could not stop the game: {}", std::io::Error::last_os_error()));
+    }
+    std::thread::spawn(move || {
+        std::thread::sleep(STOP_GRACE);
+        let mut guard = match child.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if let Some(process) = guard.as_mut() {
+            if process.id() == pid && matches!(process.try_wait(), Ok(None)) {
+                let _ = process.kill();
+            }
+        }
+    });
     Ok(())
 }
 

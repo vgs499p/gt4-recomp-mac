@@ -80,9 +80,8 @@ gt4_fixture(native_frame_skip frame_skip_fixture SOURCES "${GT4_NATIVE}/frame_sk
 gt4_fixture(native_usb_dfp usb_dfp_fixture SOURCES "${GT4_NATIVE}/usb_dfp_fixture.cpp" LINK gt4_usb)
 gt4_fixture(native_input_recording input_recording_fixture SOURCES "${GT4_NATIVE}/input_recording_fixture.cpp"
     LINK gt4_pad_mapping ARGS "${CMAKE_BINARY_DIR}/native_input_recording.txt")
-gt4_fixture(native_standalone standalone_fixture SOURCES "${GT4_NATIVE}/standalone_fixture.cpp"
-    "${GT4_NATIVE}/standalone.cpp" LINK gt4_pad_mapping)
-target_compile_definitions(standalone_fixture PRIVATE GT4_STANDALONE_SAMPLE_DIR="${GT4_NATIVE}/standalone_samples")
+# native_standalone is not built: its samples are Windows install folders (drive letters, backslashes, 8.3 names), and on
+# macOS a start without the launcher shows a message instead of running those rules (native/game_main.cpp).
 gt4_fixture(native_game_target game_target_fixture SOURCES "${GT4_NATIVE}/game_target_fixture.cpp"
     "${GT4_NATIVE}/game_target_spec2_fixture.cpp")
 set_source_files_properties("${GT4_NATIVE}/game_target_fixture.cpp" PROPERTIES COMPILE_DEFINITIONS GT4_TARGET_FIXTURE_V200)

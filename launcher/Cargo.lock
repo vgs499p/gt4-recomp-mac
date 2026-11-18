@@ -1244,6 +1244,7 @@ dependencies = [
  "gt4l-disc",
  "gt4l-platform",
  "gt4saves",
+ "libc",
  "serde",
  "serde_json",
  "tauri",

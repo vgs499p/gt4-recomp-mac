@@ -513,7 +513,56 @@ class CardLock {
 };
 } // namespace
 
+// IN-520: the recording and replay files; false stops the start, since a bench must not run with half its input.
+bool open_input_files() {
+  const char *record = std::getenv("GT4_INPUT_RECORD");
+  const char *replay = std::getenv("GT4_INPUT_REPLAY");
+  std::string error;
+  if (record != nullptr && replay != nullptr) {
+    std::fprintf(stderr, "[input] GT4_INPUT_RECORD and GT4_INPUT_REPLAY together, game not started\n");
+    return false;
+  }
+  if (record != nullptr && !input_recorder.open(record, error)) {
+    std::fprintf(stderr, "[input] %s, game not started\n", error.c_str());
+    return false;
+  }
+  if (record != nullptr) std::fprintf(stderr, "[input] recording to %s; F9 ends it and closes the game\n", record);
+  if (replay != nullptr) {
+    input_player = std::make_unique<gt4::input_recording::Player>();
+    if (!input_player->load(replay, error)) {
+      std::fprintf(stderr, "[input] %s: %s, game not started\n", replay, error.c_str());
+      return false;
+    }
+    std::fprintf(stderr, "[input] replaying %s: %zu changes up to VBlank %llu\n", replay, input_player->changes(),
+                 static_cast<unsigned long long>(input_player->end()));
+  }
+  return true;
+}
+
+bool install_input_replay_without_window() {
+  if (std::getenv("GT4_INPUT_RECORD") != nullptr) {
+    std::fprintf(stderr, "[input] GT4_INPUT_RECORD needs --window, game not started\n");
+    return false;
+  }
+  if (std::getenv("GT4_INPUT_REPLAY") == nullptr) {
+    if (gt4::frame_skip::g_enabled) {
+      ps2::g_options.on_vblank = [] {
+        ++input_vblank;
+        note_frame_skip_vblank();
+      };
+    }
+    return true;
+  }
+  if (!open_input_files()) return false;
+  ps2::g_options.on_vblank = [] {
+    apply_pad(input_player->at(++input_vblank));
+    note_frame_skip_vblank();
+  };
+  return true;
+}
+
 bool open_window(bool fullscreen) {
+  if (!open_input_files()) return false;
   // The launcher passes GT4_FULLSCREEN (its Display setting, on by default). An invalid value stops the start.
   bool start_fullscreen = fullscreen;
   try {
@@ -530,6 +579,15 @@ bool open_window(bool fullscreen) {
                  error.what());
     return false;
   }
+  try {
+    active_wheel = gt4::wheel::load_wheel_from_environment(&has_explicit_wheel_file);
+  } catch (const gt4::wheel::ConfigError &error) {
+    std::fprintf(stderr, "[wheel] invalid wheel file, game not started: %s\n", error.what());
+    return false;
+  }
+  std::fprintf(stderr, "[wheel] %s (enabled=%s, preset=%s)\n",
+               has_explicit_wheel_file ? "wheel.toml found" : "no wheel.toml", active_wheel.enabled ? "true" : "false",
+               active_wheel.preset.c_str());
   // TASK-080: an invalid GT4_DISPLAY_ASPECT, GT4_OUTPUT_SIZE or GT4_ASPECT_FOV_EXTRA stops the start here (prints and
   // exits).
   gt4::display_aspect::configured_setting();
@@ -632,8 +690,11 @@ void flush_cards_now(); // memcard capsule sio2.cpp (scripts/prepare_memcard_flu
 
 int run_window(const std::function<int()> &emulate) {
   ControllerInput input(active_controls, input_backend);
+  gt4::wheel::WheelInput wheel_input(active_wheel, has_explicit_wheel_file);
+  wheel_controller = &wheel_input;
   controller = &input;
   const auto cleanup = [&]() {
+    input_recorder.finish(input_vblank);
     gt4::achievements::shutdown();
 #ifdef GT4_PERF_PROBE
     gt4::perf::Probe::shared().set_report_section({});
@@ -651,6 +712,8 @@ int run_window(const std::function<int()> &emulate) {
     ps2::set_audio_sink({});
     ps2::g_options.on_vblank = {};
     input.stop();
+    wheel_input.stop();
+    wheel_controller = nullptr;
     controller = nullptr;
     surface_attached = false;
     if (game_window) {
@@ -711,7 +774,15 @@ int run_window(const std::function<int()> &emulate) {
     // shortcut: one thread and FIFO presentation, qualify pipelining later.
     ps2::g_options.on_vblank = on_vblank;
     gt4::achievements::initialize(game_window, ps2::g_ram, ps2::kRamSize, ps2::g_spr, ps2::kScratchpadSize);
-    AudioOutput audio(pump_messages, pacing_mode);
+    const char *audio_choice = std::getenv("GT4_AUDIO");
+    AudioOutput audio(pump_messages, pacing_mode,
+                      audio_choice != nullptr && std::strcmp(audio_choice, "none") == 0 ? AudioDevice::none
+                                                                                       : AudioDevice::system);
+    // TASK-129: without sound the blocking audio path has nothing to wait on, so the frame clock paces the game.
+    if (audio.silent() && pacing_mode == gt4::pacing::Mode::audio) {
+      pacing_mode = gt4::pacing::Mode::paced;
+      std::fprintf(stderr, "[pacing] mode=paced: no audio output to pace on\n");
+    }
     audio_output = &audio;
 #ifdef GT4_PERF_PROBE
     gt4::perf::Probe::shared().set_report_section([](std::FILE *output) {

@@ -211,6 +211,12 @@
       return state.controls.filter(function (control) { return control.id === id; })[0] || null;
     }
 
+    // The keys of a button in the controls file (key:<name> sources), without the key: prefix.
+    function keysOf(control) {
+      return control ? (control.sources || []).filter(function (source) { return M.family(source) === "key"; })
+        .map(function (source) { return M.sourceName ? M.sourceName(source) : source.replace(/^key:/, "").split(" ")[0]; }) : [];
+    }
+
     function firstOf(control, family) {
       return control ? (control.sources || []).filter(function (source) { return M.family(source) === family; })[0] || null : null;
     }
@@ -228,32 +234,25 @@
       GT4.ui.clear(padChipSlot);
       padChipSlot.appendChild(chip(padSource));
       padChipSlot.appendChild(h("span", { class: "cx-src-t", text: M.label(padSource).long }));
-      // The keyboard layout is fixed in this build: every key of the button, read only.
-      var keyNames = M.KEYBOARD_LAYOUT[id] || [];
+      // The keys of the button, from the controls file: Rebind in the Keyboard view takes the next key pressed.
+      var keyNames = keysOf(control);
       GT4.ui.clear(keyChipSlot);
       keyNames.forEach(function (name) {
         keyChipSlot.appendChild(chip("key:" + name));
       });
-      keyChipSlot.appendChild(h("span", { class: "cx-src-t", text: keyNames.length ? GT4.t("controls.fixed_layout") : GT4.t("controls.not_in_layout") }));
-      var keysMode = state.mode === "key";
-      rebindButton.disabled = state.locked || keysMode;
-      resetButton.disabled = state.locked || keysMode || !control || control.is_default;
-      var pointer = GT4.inputMode && GT4.inputMode() === "mouse";
-      if (keysMode) {
-        cardHint.textContent = GT4.t("controls.keyboard_fixed");
-      } else {
-        cardHint.textContent = state.locked ? "" : (pointer ? GT4.t("controls.click_again") : GT4.t("controls.press_a"));
+      if (!keyNames.length) {
+        keyChipSlot.appendChild(h("span", { class: "cx-src-t", text: GT4.t("controls.not_in_layout") }));
       }
+      rebindButton.disabled = state.locked;
+      resetButton.disabled = state.locked || !control || control.is_default;
+      var pointer = GT4.inputMode && GT4.inputMode() === "mouse";
+      cardHint.textContent = state.locked ? "" : (pointer ? GT4.t("controls.click_again") : GT4.t("controls.press_a"));
     }
 
     function paintLegend() {
       GT4.ui.clear(legend);
       if (state.mode === "key") {
-        var actions = M.KEYBOARD_ACTIONS.map(function (action) {
-          return action.name + " " + action.keys.join(" or ") + " (" + action.button + ")";
-        }).join(", ");
-        legend.appendChild(h("span", { class: "cx-legend-note", text: GT4.t("controls.legend_fixed") + " " +
-          "" + GT4.t("controls.in_a_race", { actions: actions }) }));
+        legend.appendChild(h("span", { class: "cx-legend-note", text: GT4.t("controls.legend_fixed") }));
         return;
       }
       [
@@ -283,7 +282,7 @@
     function paintBadges() {
       if (state.mode === "key") {
         pad.setBadges(state.controls.map(function (control) {
-          return { id: control.id, keys: M.KEYBOARD_LAYOUT[control.id] || [], is_default: true, sources: [] };
+          return { id: control.id, keys: keysOf(control), is_default: control.is_default, sources: [] };
         }), "key");
       } else {
         pad.setBadges(state.controls, "xinput");
@@ -641,10 +640,6 @@
         GT4.ui.toast(GT4.t("controls.file_kept"), true);
         return;
       }
-      if (state.mode === "key") {
-        GT4.ui.toast(GT4.t("controls.keys_fixed_rebind"));
-        return;
-      }
       select(id);
       var parts = captureBody(id);
       var capture = { id: id, done: false, started: Date.now(), timer: null, dialog: null };
@@ -676,7 +671,7 @@
 
       GT4.capturing = true;
       GT4.cancelCapture = function () { stop("cancel"); };
-      // Keyboard rebinding is off: a key only cancels (Esc); the layout is fixed.
+      // A key binds it (Esc cancels); keys the launcher keeps (F7, F8, F9, F11) and unknown keys say so and keep waiting.
       GT4.captureKey = function (event) {
         if (event.repeat) {
           return true; // a key held since before the rebind
@@ -684,6 +679,8 @@
         var key = M.keyFromEvent(event);
         if (key.cancel) {
           stop("cancel");
+        } else if (key.name) {
+          stop("source", "key:" + key.name);
         } else {
           parts.message.textContent = GT4.t("controls.keys_fixed_capture");
         }
@@ -803,10 +800,6 @@
 
     function resetOne(id) {
       if (state.locked || state.capture) {
-        return;
-      }
-      if (state.mode === "key") {
-        GT4.ui.toast(GT4.t("controls.keys_fixed_toast"));
         return;
       }
       var control = findControl(id);
