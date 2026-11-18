@@ -3,8 +3,8 @@
 #   brew install --cask gt4recomp
 # Bring your own Gran Turismo 4 (USA) v2.00 disc image; the app never includes it.
 cask "gt4recomp" do
-  version "1.2.5-mac.1"
-  sha256 "4fc26ec6f2dd6bcc2ab08dfd61c407fb06641a5d91930c754877b23999956ff4"
+  version "1.3.0-mac.1"
+  sha256 "ddcf5d61a4795af12c6ea731ef10ba0294e86195f9e0d9629316af35aff627df"
 
   url "https://github.com/vgs499p/gt4-recomp-mac/releases/download/v#{version}/GT4Recomp-#{version}-macos-arm64.zip"
   name "GT4Recomp"

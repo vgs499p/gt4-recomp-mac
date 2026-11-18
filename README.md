@@ -23,29 +23,28 @@ PCSX2 GS renderer running on **Metal** in its own process.
 
 | Part | State |
 |---|---|
-| Host runtime and its tests | Done (35 tests pass) |
+| Host runtime and its tests | Done (47 tests pass) |
 | Game library built for arm64 from your own disc | Done: the generated code is byte-identical to the Windows build's |
 | Boot, menus, races, saves to a memory card, controller and keyboard | Working |
 | PCSX2 GS renderer (Metal), shown inside the game window | Working; races run well on an Apple M4 |
 | Launcher and a double-clickable `GT4Recomp.app` | Working: sets the game up from your disc image and plays it |
+| Upstream 1.3.0 game (rc14 recipe): 360-degree camera, FoV zoom, full trigger range, frame skip, racing wheels | Working on macOS |
+| Keyboard rebinding, PCSX2 save import, clean quit from the launcher | Working |
 
 Tested only on an **Apple M4**. Other Apple Silicon Macs should work but have not been tried.
 
 ## Known issues
 
 - The app is not notarized by Apple (see Install for how to open it).
-- The built-in renderer (used without `GT4_RENDERER=pcsx2`) runs on MoltenVK. It is slower, and cars from earlier
-  frames can flash during races. Use the PCSX2 renderer.
-- Frame times, higher resolutions and long sessions have not been measured on macOS yet.
-- If the game is force-quit, its renderer process may keep running in the background until it notices.
-- The launcher's setup page still says the renderer comes "from GitHub"; on macOS it is already inside the app.
-- Some launcher pages still use Windows wording (Recycle Bin, Documents, installer), and the launcher never offers
-  updates on macOS: rebuild the app to update.
+- CoreGS 2.0 (upstream's own renderer) is not in the Mac build yet; the Mac app uses the PCSX2 GS renderer on Metal.
+- RetroAchievements sign-in does not work on macOS yet (upstream now protects the token with a Windows-only store).
+- Save states are not available (the PCSX2 GS process refuses them, as on Windows).
+- Heavy night scenes at high resolutions can slow down on base Apple chips; lower the Render scale if they do.
+- Tested on an Apple M4 only.
 
 ## Requirements
 
-- An **Apple Silicon Mac** with **macOS 14.4 or later**, and about **6 GB free** (the launcher keeps a copy of
-  your disc image).
+- An **Apple Silicon Mac** with **macOS 14.4 or later**.
 - **Xcode command line tools**, **CMake 3.24+**, **Ninja**, **Python 3** and **Rust** (for the shader compiler).
 - Homebrew packages: `sdl3`, `molten-vk`, `vulkan-loader`, `vulkan-headers`, plus the renderer's libraries
   (see the renderer build notes).
@@ -64,8 +63,8 @@ Tested only on an **Apple M4**. Other Apple Silicon Macs should work but have no
 
 2. The app is signed but not notarized, so the first time macOS refuses to open it. Open **System Settings > Privacy &
    Security** and click **Open Anyway** next to GT4Recomp (the Homebrew install skips this step).
-3. Choose your Gran Turismo 4 (USA) v2.00 disc image once, then press **Play**. Your settings, saves and the copy of
-   your disc go in `~/Library/Application Support/GT4Recomp`.
+3. Choose your Gran Turismo 4 (USA) v2.00 disc image once, then press **Play**. The launcher uses the image where you keep it (keep
+   it there). Your settings and saves go in `~/Library/Application Support/GT4Recomp`.
 
 Releases never include the disc image: you always bring your own copy.
 
@@ -89,7 +88,7 @@ python3 -I ports/macos/package_app.py --out build/macos/GT4Recomp.app
 ```
 
 6. **Play:** open `build/macos/GT4Recomp.app` (move it to Applications if you like), choose your disc image once,
-   then press **Play**. Your settings, saves and the copy of your disc go in `~/Library/Application Support/GT4Recomp`.
+   then press **Play**. The launcher uses the image where you keep it; your settings and saves go in `~/Library/Application Support/GT4Recomp`.
 
 The app you build is signed only for your Mac (ad hoc), so other Macs will refuse to open it.
 
@@ -118,6 +117,9 @@ Turn the controller on before you start the game.
 | C · Tab | Camera (Select) |
 | P | Start / Pause |
 | Option+Return, F11 | Fullscreen |
+| Cmd+Q | Quit |
+
+Keys can be rebound in the launcher (Settings > Controls, Keyboard view: pick a button, Rebind, press a key).
 
 ## How the Mac port works
 
